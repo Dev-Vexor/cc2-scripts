@@ -1,5 +1,5 @@
 -- Delta Overlay for Car Crushers 2 (Delta iOS)
--- Load: loadstring(game:HttpGet("https://raw.githubusercontent.com/Dev-Vexor/cc2-scripts/main/CarCrushers.lua"))()
+-- Load (cache bust if button stuck): loadstring(game:HttpGet("https://raw.githubusercontent.com/Dev-Vexor/cc2-scripts/main/CarCrushers.lua?v=" .. os.time()))()
 
 -- Delta Overlay bundled build (generated)
 -- Host this file and load with loader.lua / HttpGet
@@ -63,8 +63,32 @@ function Platform.waitReady()
 end
 
 function Platform.getGuiParent(_localPlayer)
-	-- CoreGui renders above Roblox mobile controls; PlayerGui sits under them.
-	return game:GetService("CoreGui")
+	local function protect(gui)
+		pcall(function()
+			if syn and syn.protect_gui then
+				syn.protect_gui(gui)
+			end
+		end)
+		pcall(function()
+			local g = getgenv and getgenv() or _G
+			if typeof(g.protectgui) == "function" then
+				g.protectgui(gui)
+			end
+		end)
+	end
+
+	if typeof(gethui) == "function" then
+		local hui = gethui()
+		protect(hui)
+		return hui
+	end
+	if typeof(get_hidden_gui) == "function" then
+		return get_hidden_gui()
+	end
+
+	local CoreGui = game:GetService("CoreGui")
+	protect(CoreGui)
+	return CoreGui
 end
 
 function Platform.notify(title, text)
@@ -82,8 +106,8 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.3.2"
-Config.LAYOUT_VERSION = 4
+Config.VERSION = "1.3.3"
+Config.LAYOUT_VERSION = 5
 
 Config.PLACE_IDS = {
 	CC2 = 654732683,
@@ -243,6 +267,7 @@ end
 
 -- Roblox mobile UI zones (xMin, xMax, yMin, yMax) in screen scale
 Utils.ROBLOX_UI_ZONES = {
+	{ 0.0, 0.24, 0.0, 0.20 }, -- top-left: Roblox menu / logo
 	{ 0.45, 1.01, 0.0, 1.01 }, -- entire right side on mobile
 	{ 0.0, 0.30, 0.62, 1.01 }, -- bottom-left: move stick
 }
@@ -253,9 +278,25 @@ end
 
 function Utils.getDefaultButtonPosition()
 	if Utils.isMobile() then
-		return { x = 0.11, y = 0.42 }
+		return { x = 0.10, y = 0.58 }
 	end
 	return { x = 0.94, y = 0.5 }
+end
+
+function Utils.getDefaultButtonOffset(radiusPx)
+	local inset = Utils.getGuiInset()
+	local viewport = workspace.CurrentCamera.ViewportSize
+	radiusPx = radiusPx or 30
+
+	if viewport.X <= 0 or viewport.Y <= 0 then
+		return { mode = "offset", x = 56, y = 420 }
+	end
+
+	local cx = inset.X + radiusPx + 16
+	local safeHeight = math.max(viewport.Y - inset.Y * 2, 1)
+	local cy = inset.Y + safeHeight * 0.52
+
+	return { mode = "offset", x = cx, y = cy }
 end
 
 function Utils.isRobloxUiZone(x, y)
@@ -270,18 +311,64 @@ function Utils.isRobloxUiZone(x, y)
 	return false
 end
 
-function Utils.sanitizeButtonPosition(point)
+function Utils.sanitizeButtonPosition(point, radiusPx)
+	if Utils.isMobile() then
+		local defaultOffset = Utils.getDefaultButtonOffset(radiusPx)
+		if typeof(point) ~= "table" or typeof(point.x) ~= "number" or typeof(point.y) ~= "number" then
+			return defaultOffset
+		end
+
+		if point.mode == "offset" then
+			local viewport = workspace.CurrentCamera.ViewportSize
+			local inset = Utils.getGuiInset()
+			if point.y < inset.Y + 72 then
+				return defaultOffset
+			end
+			if point.x > viewport.X * 0.38 then
+				return defaultOffset
+			end
+			if point.x < viewport.X * 0.30 and point.y > viewport.Y * 0.62 then
+				return defaultOffset
+			end
+			return point
+		end
+
+		if point.x > 0.38 or point.y < 0.22 or Utils.isRobloxUiZone(point.x, point.y) then
+			return defaultOffset
+		end
+
+		local viewport = workspace.CurrentCamera.ViewportSize
+		local inset = Utils.getGuiInset()
+		local safeWidth = math.max(viewport.X - inset.X, 1)
+		local safeHeight = math.max(viewport.Y - inset.Y * 2, 1)
+		return {
+			mode = "offset",
+			x = inset.X + point.x * safeWidth,
+			y = inset.Y + point.y * safeHeight,
+		}
+	end
+
 	local defaultPos = Utils.getDefaultButtonPosition()
 	if typeof(point) ~= "table" or typeof(point.x) ~= "number" or typeof(point.y) ~= "number" then
-		return defaultPos
-	end
-	if Utils.isMobile() and point.x > 0.38 then
 		return defaultPos
 	end
 	if Utils.isRobloxUiZone(point.x, point.y) then
 		return defaultPos
 	end
 	return point
+end
+
+function Utils.clampButtonOffset(cx, cy, radiusPx)
+	local inset = Utils.getGuiInset()
+	local viewport = workspace.CurrentCamera.ViewportSize
+	local minX = inset.X + radiusPx + 8
+	local maxX = viewport.X * 0.38
+	local minY = inset.Y + 72
+	local maxY = viewport.Y - inset.Y - radiusPx - 8
+
+	cx = Utils.clamp(cx, minX, maxX)
+	cy = Utils.clamp(cy, minY, maxY)
+	return cx, cy
 end
 
 function Utils.clampButtonPosition(x, y, radiusPx)
@@ -312,6 +399,7 @@ function Utils.resetButtonLayout(layoutVersion)
 	if g.DeltaOverlay.layoutVersion ~= layoutVersion then
 		g.DeltaOverlay.buttonPosition = nil
 		g.DeltaOverlay.buttonPositionV2 = nil
+		g.DeltaOverlay.buttonPositionV3 = nil
 		g.DeltaOverlay.layoutVersion = layoutVersion
 		if writefile and isfile and isfile("delta_overlay/settings.json") then
 			pcall(function()
@@ -997,7 +1085,7 @@ return Components
 local FloatingButton = {}
 FloatingButton.__index = FloatingButton
 
-local SAVE_KEY = "buttonPositionV2"
+local SAVE_KEY = "buttonPositionV3"
 
 function FloatingButton.new(deps)
 	local self = setmetatable({}, FloatingButton)
@@ -1010,12 +1098,51 @@ function FloatingButton.new(deps)
 	self.state = deps.state
 
 	self.button = self:_create()
+	self:_ensurePosition(true)
 	return self
+end
+
+function FloatingButton:_radiusPx()
+	return self.theme.Sizes.floatingButton * 0.5
 end
 
 function FloatingButton:_applyScalePosition(point)
 	self.button.AnchorPoint = Vector2.new(0.5, 0.5)
 	self.button.Position = UDim2.new(point.x, 0, point.y, 0)
+end
+
+function FloatingButton:_applyOffsetPosition(point)
+	self.button.AnchorPoint = Vector2.new(0.5, 0.5)
+	self.button.Position = UDim2.fromOffset(point.x, point.y)
+end
+
+function FloatingButton:_applyPosition(point)
+	if self.utils.isMobile() then
+		self:_applyOffsetPosition(point)
+	else
+		self:_applyScalePosition(point)
+	end
+end
+
+function FloatingButton:_defaultPosition()
+	if self.utils.isMobile() then
+		return self.utils.getDefaultButtonOffset(self:_radiusPx())
+	end
+	return self.utils.getDefaultButtonPosition()
+end
+
+function FloatingButton:_loadPosition()
+	local saved = self.utils.getSavedPoint(SAVE_KEY, self:_defaultPosition())
+	return self.utils.sanitizeButtonPosition(saved, self:_radiusPx())
+end
+
+function FloatingButton:_ensurePosition(forceSave)
+	local point = self:_loadPosition()
+	self:_applyPosition(point)
+	if forceSave then
+		self.utils.savePoint(SAVE_KEY, point)
+	end
+	self:_notifyMove()
 end
 
 function FloatingButton:_create()
@@ -1047,13 +1174,20 @@ function FloatingButton:_create()
 	stroke.Transparency = 0.15
 	stroke.Parent = button
 
-	local saved = self.utils.getSavedPoint(SAVE_KEY, self.utils.getDefaultButtonPosition())
-	saved = self.utils.sanitizeButtonPosition(saved)
-	self:_applyScalePosition(saved)
-	self.utils.savePoint(SAVE_KEY, saved)
-	self:_notifyMove()
-
 	self:_bindDrag(button)
+
+	task.defer(function()
+		for _ = 1, 12 do
+			if workspace.CurrentCamera.ViewportSize.Y > 120 then
+				break
+			end
+			task.wait(0.05)
+		end
+		local point = self:_loadPosition()
+		self:_applyPosition(point)
+		self.utils.savePoint(SAVE_KEY, point)
+		self:_notifyMove()
+	end)
 
 	return button
 end
@@ -1072,11 +1206,20 @@ function FloatingButton:_bindDrag(button)
 	local dragStart
 	local startPoint
 
+	local function saveCurrentPosition()
+		if self.utils.isMobile() then
+			local cx, cy = button.Position.X.Offset, button.Position.Y.Offset
+			self.utils.savePoint(SAVE_KEY, { mode = "offset", x = cx, y = cy })
+		else
+			local x, y = button.Position.X.Scale, button.Position.Y.Scale
+			self.utils.savePoint(SAVE_KEY, { x = x, y = y })
+		end
+	end
+
 	local function finish()
 		if activeInput then
 			if dragging then
-				local x, y = button.Position.X.Scale, button.Position.Y.Scale
-				self.utils.savePoint(SAVE_KEY, { x = x, y = y })
+				saveCurrentPosition()
 				self:_notifyMove()
 			end
 			activeInput = nil
@@ -1094,7 +1237,17 @@ function FloatingButton:_bindDrag(button)
 			dragging = false
 			didDrag = false
 			dragStart = input.Position
-			startPoint = { x = button.Position.X.Scale, y = button.Position.Y.Scale }
+			if self.utils.isMobile() then
+				startPoint = {
+					x = button.Position.X.Offset,
+					y = button.Position.Y.Offset,
+				}
+			else
+				startPoint = {
+					x = button.Position.X.Scale,
+					y = button.Position.Y.Scale,
+				}
+			end
 		end
 	end)
 
@@ -1109,17 +1262,24 @@ function FloatingButton:_bindDrag(button)
 			return
 		end
 
-		local viewport = workspace.CurrentCamera.ViewportSize
 		local delta = input.Position - dragStart
 		if delta.Magnitude > 8 then
 			dragging = true
 			didDrag = true
 		end
 		if dragging then
-			local cx = startPoint.x + delta.X / viewport.X
-			local cy = startPoint.y + delta.Y / viewport.Y
-			cx, cy = self.utils.clampButtonPosition(cx, cy, button.AbsoluteSize.X * 0.5)
-			button.Position = UDim2.new(cx, 0, cy, 0)
+			if self.utils.isMobile() then
+				local cx = startPoint.x + delta.X
+				local cy = startPoint.y + delta.Y
+				cx, cy = self.utils.clampButtonOffset(cx, cy, button.AbsoluteSize.X * 0.5)
+				button.Position = UDim2.fromOffset(cx, cy)
+			else
+				local viewport = workspace.CurrentCamera.ViewportSize
+				local cx = startPoint.x + delta.X / viewport.X
+				local cy = startPoint.y + delta.Y / viewport.Y
+				cx, cy = self.utils.clampButtonPosition(cx, cy, button.AbsoluteSize.X * 0.5)
+				button.Position = UDim2.new(cx, 0, cy, 0)
+			end
 			self:_notifyMove()
 		end
 	end)
@@ -2721,8 +2881,8 @@ local function bootstrap(loadModule)
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = Platform.isMobile() and "DeltaOverlayGui_Mobile" or "DeltaOverlayGui"
 	screenGui.ResetOnSpawn = false
-	screenGui.IgnoreGuiInset = true
-	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.IgnoreGuiInset = not Platform.isMobile()
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 	screenGui.DisplayOrder = 999999
 	screenGui.Enabled = true
 	screenGui.Parent = Platform.getGuiParent(LocalPlayer)
@@ -2840,7 +3000,7 @@ local function bootstrap(loadModule)
 	overlay.menu:show()
 	overlay.button:setActive(true)
 	overlay.setStatus(string.format("%s • v%s • iOS ready", gameContext:getSummary(), Config.VERSION))
-	Platform.notify("Delta Overlay", overlay.game .. " v" .. Config.VERSION)
+	Platform.notify("Delta Overlay", string.format("%s v%s • кнопка слева по центру", overlay.game, Config.VERSION))
 
 	LocalPlayer.CharacterAdded:Connect(function()
 		task.wait(0.6)
