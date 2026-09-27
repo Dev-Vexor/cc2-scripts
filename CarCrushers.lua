@@ -106,9 +106,15 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.4.0"
-Config.UI_BUILD = "TOP_MENU"
+Config.VERSION = "1.5.0"
+Config.UI_BUILD = "AUTO_TOP"
 Config.LAYOUT_VERSION = 5
+
+Config.FLY = {
+	MIN_SPEED = 16,
+	MAX_SPEED = 600,
+	SPEED_STEP = 10,
+}
 
 Config.PLACE_IDS = {
 	CC2 = 654732683,
@@ -264,6 +270,28 @@ function Utils.getGuiInset()
 		inset = game:GetService("GuiService"):GetGuiInset()
 	end)
 	return inset
+end
+
+function Utils.getScreenMetrics()
+	local camera = workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(390, 844)
+	local inset = Utils.getGuiInset()
+	local sidePad = 10
+	local topPad = Utils.isMobile() and math.max(inset.Y + 52, 56) or math.max(inset.Y + 12, 12)
+	local bottomPad = 16
+	local width = math.max(viewport.X - sidePad * 2, 120)
+	local usableHeight = math.max(viewport.Y - topPad - bottomPad, 160)
+
+	return {
+		viewport = viewport,
+		inset = inset,
+		left = sidePad,
+		topY = topPad,
+		width = width,
+		usableHeight = usableHeight,
+		maxPanelHeight = math.floor(usableHeight * 0.72),
+		minPanelHeight = math.floor(math.min(usableHeight * 0.42, 280)),
+	}
 end
 
 -- Roblox mobile UI zones (xMin, xMax, yMin, yMax) in screen scale
@@ -1326,6 +1354,7 @@ function FlySpeedHud.new(deps)
 	self.flyService = deps.flyService
 	self.screenGui = deps.screenGui
 	self.setStatus = deps.setStatus
+	self.config = deps.config
 	self.root = self:_create()
 	self:sync()
 	return self
@@ -1389,7 +1418,8 @@ function FlySpeedHud:_create()
 	self.plusBtn = makeBtn("+", 28)
 
 	local function bump(delta)
-		local nextSpeed = self.utils.clamp(self.state.flySpeed + delta, 16, 200)
+		local fly = self.config and self.config.FLY or { MIN_SPEED = 16, MAX_SPEED = 600 }
+		local nextSpeed = self.utils.clamp(self.state.flySpeed + delta, fly.MIN_SPEED, fly.MAX_SPEED)
 		self.flyService:setSpeed(nextSpeed)
 		self.state.flySpeed = nextSpeed
 		self:sync()
@@ -1439,60 +1469,61 @@ return FlySpeedHud
 local MenuSheet = {}
 MenuSheet.__index = MenuSheet
 
-local HEADER_HEIGHT = 88
+local HEADER_HEIGHT = 92
 
 function MenuSheet.new(deps)
 	local self = setmetatable({}, MenuSheet)
 	self.theme = deps.theme
 	self.utils = deps.utils
-	self.animation = deps.animation
 	self.components = deps.components
 	self.state = deps.state
 	self.screenGui = deps.screenGui
 	self.modules = deps.modules
 	self.onClose = deps.onClose
-	self.setStatus = deps.setStatus
+	self.setStatusFn = deps.setStatus
+	self.config = deps.config
 
-	self.openY = 0
-	self.root = self:_create()
+	self.panel = self:_create()
 	self.tabFrames = {}
 	self:_buildTabs()
+	self:_bindViewport()
+
+	task.defer(function()
+		self:_layout()
+	end)
+
 	return self
 end
 
 function MenuSheet:_create()
 	local Theme = self.theme
-	local inset = self.utils.getGuiInset()
-	local panelHeight = Theme.Sizes.panelHeight or 0.58
-
-	self.openY = inset.Y + 6
 
 	local panel = Instance.new("Frame")
 	panel.Name = "TopMenuPanel"
-	panel.AnchorPoint = Vector2.new(0.5, 0)
-	panel.Position = UDim2.new(0.5, 0, 0, self.openY - 500)
-	panel.Size = UDim2.new(1, -10, panelHeight, 0)
+	panel.AnchorPoint = Vector2.new(0, 0)
+	panel.Position = UDim2.fromOffset(0, 0)
+	panel.Size = UDim2.fromOffset(320, 320)
 	panel.BackgroundColor3 = Theme.Colors.bgPrimary
-	panel.BackgroundTransparency = 0.04
+	panel.BackgroundTransparency = 0
 	panel.Visible = false
 	panel.ZIndex = 20
 	panel.ClipsDescendants = true
 	panel.Parent = self.screenGui
 
-	local bottomCorner = Instance.new("UICorner")
-	bottomCorner.CornerRadius = UDim.new(0, Theme.Sizes.cornerSheet)
-	bottomCorner.Parent = panel
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, Theme.Sizes.cornerSheet)
+	corner.Parent = panel
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = Theme.Colors.textSecondary
-	stroke.Transparency = 0.7
+	stroke.Transparency = 0.55
 	stroke.Thickness = 1
 	stroke.Parent = panel
 
 	local header = Instance.new("Frame")
 	header.Name = "Header"
 	header.BackgroundColor3 = Theme.Colors.bgSecondary
-	header.BackgroundTransparency = 0.12
+	header.BackgroundTransparency = 0
 	header.Size = UDim2.new(1, 0, 0, HEADER_HEIGHT)
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 2
@@ -1510,10 +1541,23 @@ function MenuSheet:_create()
 	title.TextSize = Theme.Sizes.header
 	title.TextColor3 = Theme.Colors.textPrimary
 	title.Text = "CC2 Menu"
-	title.Size = UDim2.new(1, -88, 1, 0)
+	title.Size = UDim2.new(1, -140, 1, 0)
 	title.Position = UDim2.fromOffset(12, 0)
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.Parent = titleRow
+
+	local buildLabel = Instance.new("TextLabel")
+	buildLabel.Name = "BuildLabel"
+	buildLabel.BackgroundTransparency = 1
+	buildLabel.Font = Theme.Fonts.mono
+	buildLabel.TextSize = 11
+	buildLabel.TextColor3 = Theme.Colors.success
+	buildLabel.TextXAlignment = Enum.TextXAlignment.Left
+	buildLabel.Size = UDim2.fromOffset(120, 16)
+	buildLabel.Position = UDim2.fromOffset(12, 22)
+	buildLabel.Text = (self.config and self.config.UI_BUILD or "UI") .. " v"
+		.. (self.config and self.config.VERSION or "?")
+	buildLabel.Parent = titleRow
 
 	local close = Instance.new("TextButton")
 	close.Name = "CloseButton"
@@ -1523,10 +1567,9 @@ function MenuSheet:_create()
 	close.TextSize = 15
 	close.TextColor3 = Theme.Colors.textPrimary
 	close.BackgroundColor3 = Theme.Colors.danger
-	close.BackgroundTransparency = 0.15
+	close.BackgroundTransparency = 0
 	close.Size = UDim2.fromOffset(34, 34)
-	close.Position = UDim2.new(1, -44, 0.5, 0)
-	close.AnchorPoint = Vector2.new(0, 0.5)
+	close.Position = UDim2.new(1, -44, 0, 0)
 	close.Parent = titleRow
 
 	local closeCorner = Instance.new("UICorner")
@@ -1537,19 +1580,18 @@ function MenuSheet:_create()
 	segmentedHost.Name = "SegmentedHost"
 	segmentedHost.BackgroundTransparency = 1
 	segmentedHost.Size = UDim2.new(1, -20, 0, 34)
-	segmentedHost.Position = UDim2.fromOffset(10, 46)
+	segmentedHost.Position = UDim2.fromOffset(10, 50)
 	segmentedHost.Parent = header
 
 	local contentHost = Instance.new("Frame")
 	contentHost.Name = "ContentHost"
 	contentHost.BackgroundTransparency = 1
 	contentHost.ClipsDescendants = true
-	contentHost.Size = UDim2.new(1, -16, 1, -(HEADER_HEIGHT + 6))
-	contentHost.Position = UDim2.fromOffset(8, HEADER_HEIGHT + 4)
+	contentHost.Size = UDim2.new(1, -16, 1, -(HEADER_HEIGHT + 4))
+	contentHost.Position = UDim2.fromOffset(8, HEADER_HEIGHT + 2)
 	contentHost.ZIndex = 1
 	contentHost.Parent = panel
 
-	self.panel = panel
 	self.contentHost = contentHost
 
 	close.MouseButton1Click:Connect(function()
@@ -1571,20 +1613,53 @@ function MenuSheet:_create()
 	return panel
 end
 
+function MenuSheet:_measureContentHeight()
+	local frame = self.tabFrames[self.state.activeTab]
+	if not frame then
+		return 0
+	end
+	local layout = frame:FindFirstChildOfClass("UIListLayout")
+	if not layout then
+		return 0
+	end
+	return layout.AbsoluteContentSize.Y + 28
+end
+
+function MenuSheet:_layout()
+	local metrics = self.utils.getScreenMetrics()
+	local contentHeight = self:_measureContentHeight()
+	local panelHeight = metrics.minPanelHeight
+
+	if contentHeight > 0 then
+		panelHeight = math.clamp(HEADER_HEIGHT + contentHeight, metrics.minPanelHeight, metrics.maxPanelHeight)
+	end
+
+	self.panel.Size = UDim2.fromOffset(metrics.width, panelHeight)
+	self.panel.Position = UDim2.fromOffset(metrics.left, metrics.topY)
+end
+
+function MenuSheet:_bindViewport()
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		self:_layout()
+	end)
+end
+
 function MenuSheet:_configureScroll(frame)
 	frame.BackgroundTransparency = 1
 	frame.BorderSizePixel = 0
 	frame.Size = UDim2.fromScale(1, 1)
-	frame.Position = UDim2.fromOffset(0, 0)
 	frame.CanvasPosition = Vector2.zero
-	frame.CanvasSize = UDim2.fromOffset(0, 0)
 	frame.ScrollingDirection = Enum.ScrollingDirection.Y
 	frame.ScrollingEnabled = true
 	frame.Active = true
-	frame.ElasticBehavior = Enum.ElasticBehavior.Always
+	frame.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
 	frame.ScrollBarThickness = 6
 	frame.ScrollBarImageColor3 = self.theme.Colors.accent
-	frame.ScrollBarImageTransparency = 0.2
+	frame.ScrollBarImageTransparency = 0.15
 	frame.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
 end
 
@@ -1608,7 +1683,7 @@ function MenuSheet:_buildTabs()
 		layout.Parent = frame
 
 		local padding = Instance.new("UIPadding")
-		padding.PaddingTop = UDim.new(0, 2)
+		padding.PaddingTop = UDim.new(0, 4)
 		padding.PaddingBottom = UDim.new(0, 16)
 		padding.PaddingLeft = UDim.new(0, 4)
 		padding.PaddingRight = UDim.new(0, 4)
@@ -1620,6 +1695,9 @@ function MenuSheet:_buildTabs()
 		self:_updateCanvas(frame, layout)
 		layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 			self:_updateCanvas(frame, layout)
+			if self.state.menuOpen then
+				self:_layout()
+			end
 		end)
 	end
 end
@@ -1638,18 +1716,19 @@ function MenuSheet:switchTab(tab)
 		nextFrame.Visible = true
 		nextFrame.CanvasPosition = Vector2.zero
 	end
+	self:_layout()
 	self:setStatus("Tab: " .. tab)
 end
 
 function MenuSheet:show()
+	self:_layout()
 	self.panel.Visible = true
-	self.animation.topPanelPresent(self.panel, self.openY)
 	self.state.menuOpen = true
-	self:setStatus("Menu open • scroll down for more")
+	self:setStatus("Menu open")
 end
 
 function MenuSheet:hide()
-	self.animation.topPanelDismiss(self.panel, self.openY)
+	self.panel.Visible = false
 	self.state.menuOpen = false
 	if self.onClose then
 		self.onClose()
@@ -1666,6 +1745,13 @@ end
 
 function MenuSheet:updateStatus(text)
 	self.state.statusText = text
+	if self.setStatusFn then
+		self.setStatusFn(text)
+	end
+end
+
+function MenuSheet:setStatus(text)
+	self:updateStatus(text)
 end
 
 function MenuSheet:setVisible(visible)
@@ -1948,7 +2034,8 @@ function FlyService:setEnabled(enabled)
 end
 
 function FlyService:setSpeed(speed)
-	self.state.flySpeed = speed
+	local fly = self.config.FLY or { MIN_SPEED = 16, MAX_SPEED = 600 }
+	self.state.flySpeed = self.utils.clamp(speed, fly.MIN_SPEED, fly.MAX_SPEED)
 end
 
 function FlyService:setReference(reference)
@@ -2342,6 +2429,7 @@ local function buildFlyModule(deps)
 	local FlyService = deps.flyService
 	local setStatus = deps.setStatus
 	local onSpeedHudSync = deps.onSpeedHudSync
+	local Config = deps.config
 
 	return function(parent)
 		Components.createSwitch({
@@ -2378,7 +2466,7 @@ local function buildFlyModule(deps)
 			utils = Utils,
 			label = "Speed",
 			min = 16,
-			max = 200,
+			max = (Config and Config.FLY and Config.FLY.MAX_SPEED) or 600,
 			default = State.flySpeed,
 			onChange = function(value)
 				FlyService:setSpeed(value)
@@ -2777,26 +2865,43 @@ local function bootstrap(loadModule)
 
 	local LocalPlayer = Platform.waitReady()
 
-	for _, guiName in ipairs({ "DeltaOverlayGui", "DeltaOverlayGui_Mobile" }) do
-		local existing = game:GetService("CoreGui"):FindFirstChild(guiName)
-		if existing then
-			existing:Destroy()
+	local function destroyOverlayGuis(parent)
+		if not parent then
+			return
 		end
-		local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-		if playerGui then
-			local old = playerGui:FindFirstChild(guiName)
-			if old then
-				old:Destroy()
+		for _, child in parent:GetChildren() do
+			if not child:IsA("ScreenGui") then
+				continue
+			end
+			if string.sub(child.Name, 1, 12) == "DeltaOverlay" then
+				child:Destroy()
+				continue
+			end
+			if
+				child:FindFirstChild("TopMenuPanel", true)
+				or child:FindFirstChild("MenuSheet", true)
+				or child:FindFirstChild("SheetBackdrop", true)
+			then
+				child:Destroy()
 			end
 		end
 	end
 
+	destroyOverlayGuis(game:GetService("CoreGui"))
+	if typeof(gethui) == "function" then
+		pcall(function()
+			destroyOverlayGuis(gethui())
+		end)
+	end
+	local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	destroyOverlayGuis(playerGui)
+
 	local gameContext = GameContext.new(Config, Utils)
 
 	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = Platform.isMobile() and "DeltaOverlayGui_Mobile" or "DeltaOverlayGui"
+	screenGui.Name = "DeltaOverlay_v150"
 	screenGui.ResetOnSpawn = false
-	screenGui.IgnoreGuiInset = not Platform.isMobile()
+	screenGui.IgnoreGuiInset = true
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 	screenGui.DisplayOrder = 999999
 	screenGui.Enabled = true
@@ -2841,6 +2946,7 @@ local function bootstrap(loadModule)
 			components = Components,
 			utils = Utils,
 			state = State,
+			config = Config,
 			flyService = flyService,
 			setStatus = overlay.setStatus,
 			onSpeedHudSync = function()
@@ -2877,6 +2983,7 @@ local function bootstrap(loadModule)
 		state = State,
 		screenGui = screenGui,
 		modules = moduleBuilders,
+		config = Config,
 		setStatus = overlay.setStatus,
 		onClose = function()
 			if overlay.button then
@@ -2908,12 +3015,15 @@ local function bootstrap(loadModule)
 		state = State,
 		flyService = flyService,
 		screenGui = screenGui,
+		config = Config,
 		setStatus = overlay.setStatus,
 	})
 	overlay.speedHud:followButton(overlay.button.button)
 
-	overlay.setStatus(string.format("%s • v%s • tap CC to open", gameContext:getSummary(), Config.VERSION))
-	Platform.notify("Delta Overlay", string.format("%s v%s loaded", overlay.game, Config.VERSION))
+	overlay.menu:show()
+	overlay.button:setActive(true)
+	overlay.setStatus(string.format("%s • %s v%s", gameContext:getSummary(), Config.UI_BUILD, Config.VERSION))
+	Platform.notify("CC2 Overlay", Config.UI_BUILD .. " v" .. Config.VERSION)
 
 	LocalPlayer.CharacterAdded:Connect(function()
 		task.wait(0.6)
