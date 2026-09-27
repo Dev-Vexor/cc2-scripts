@@ -106,7 +106,7 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.3.3"
+Config.VERSION = "1.3.4"
 Config.LAYOUT_VERSION = 5
 
 Config.PLACE_IDS = {
@@ -184,7 +184,7 @@ Theme.Sizes = {
 	avatar = 32,
 	grabberWidth = 32,
 	grabberHeight = 4,
-	sheetHeight = 0.52,
+	sheetHeight = 0.82,
 	contentPadding = 10,
 }
 
@@ -595,7 +595,7 @@ return Animation
 ]=],
 	["src/State.lua"] = [=[
 local State = {
-	menuOpen = true,
+	menuOpen = false,
 	activeTab = "Fly",
 	minimalMode = false,
 	flyEnabled = false,
@@ -1444,6 +1444,9 @@ return FlySpeedHud
 local MenuSheet = {}
 MenuSheet.__index = MenuSheet
 
+local HEADER_HEIGHT = 102
+local FOOTER_HEIGHT = 30
+
 function MenuSheet.new(deps)
 	local self = setmetatable({}, MenuSheet)
 	self.theme = deps.theme
@@ -1455,7 +1458,7 @@ function MenuSheet.new(deps)
 	self.modules = deps.modules
 	self.onClose = deps.onClose
 	self.setStatus = deps.setStatus
-	self.dismissThreshold = 200
+	self.dismissThreshold = 140
 
 	self.root = self:_create()
 	self.tabFrames = {}
@@ -1466,27 +1469,17 @@ end
 function MenuSheet:_create()
 	local Theme = self.theme
 	local inset = self.utils.getGuiInset()
-	local sheetHeight = Theme.Sizes.sheetHeight or 0.52
-
-	local backdrop = Instance.new("Frame")
-	backdrop.Name = "SheetBackdrop"
-	backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
-	backdrop.BackgroundTransparency = 0.55
-	backdrop.Size = UDim2.fromScale(1, 1)
-	backdrop.Visible = false
-	backdrop.ZIndex = 10
-	backdrop.Active = false
-	backdrop.Parent = self.screenGui
+	local sheetHeight = Theme.Sizes.sheetHeight or 0.82
 
 	local sheet = Instance.new("Frame")
 	sheet.Name = "MenuSheet"
 	sheet.AnchorPoint = Vector2.new(0.5, 1)
 	sheet.Position = UDim2.new(0.5, 0, 1.05, 0)
-	sheet.Size = UDim2.new(1, -16, sheetHeight, -inset.Y)
+	sheet.Size = UDim2.new(1, 0, sheetHeight, -math.max(inset.Y, 0))
 	sheet.BackgroundColor3 = Theme.Colors.bgPrimary
 	sheet.BackgroundTransparency = Theme.Transparency.sheetMaterial
 	sheet.Visible = false
-	sheet.ZIndex = 11
+	sheet.ZIndex = 20
 	sheet.ClipsDescendants = true
 	sheet.Parent = self.screenGui
 
@@ -1496,55 +1489,63 @@ function MenuSheet:_create()
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = Theme.Colors.textSecondary
-	stroke.Transparency = 0.7
+	stroke.Transparency = 0.75
 	stroke.Thickness = 1
 	stroke.Parent = sheet
+
+	local header = Instance.new("Frame")
+	header.Name = "Header"
+	header.BackgroundTransparency = 1
+	header.Size = UDim2.new(1, 0, 0, HEADER_HEIGHT)
+	header.Position = UDim2.fromOffset(0, 0)
+	header.ZIndex = 2
+	header.Parent = sheet
 
 	local grabber = Instance.new("Frame")
 	grabber.Name = "Grabber"
 	grabber.AnchorPoint = Vector2.new(0.5, 0)
-	grabber.Position = UDim2.new(0.5, 0, 0, 6)
+	grabber.Position = UDim2.new(0.5, 0, 0, 8)
 	grabber.Size = UDim2.fromOffset(Theme.Sizes.grabberWidth, Theme.Sizes.grabberHeight)
 	grabber.BackgroundColor3 = Theme.Colors.textSecondary
-	grabber.BackgroundTransparency = 0.35
+	grabber.BackgroundTransparency = 0.25
 	grabber.Active = true
-	grabber.Parent = sheet
+	grabber.ZIndex = 3
+	grabber.Parent = header
 
 	local grabberCorner = Instance.new("UICorner")
 	grabberCorner.CornerRadius = UDim.new(1, 0)
 	grabberCorner.Parent = grabber
 
-	local header = Instance.new("Frame")
-	header.Name = "Header"
-	header.BackgroundTransparency = 1
-	header.Size = UDim2.new(1, 0, 0, 38)
-	header.Position = UDim2.fromOffset(0, 16)
-	header.Parent = sheet
+	local titleRow = Instance.new("Frame")
+	titleRow.BackgroundTransparency = 1
+	titleRow.Size = UDim2.new(1, 0, 0, 36)
+	titleRow.Position = UDim2.fromOffset(0, 22)
+	titleRow.Parent = header
 
 	local title = Instance.new("TextLabel")
 	title.BackgroundTransparency = 1
 	title.Font = Theme.Fonts.header
 	title.TextSize = Theme.Sizes.header
 	title.TextColor3 = Theme.Colors.textPrimary
-	title.Text = "CC2"
+	title.Text = "CC2 Overlay"
 	title.Size = UDim2.new(1, -88, 1, 0)
-	title.Position = UDim2.fromOffset(12, 0)
+	title.Position = UDim2.fromOffset(14, 0)
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Parent = header
+	title.Parent = titleRow
 
 	local close = Instance.new("TextButton")
 	close.Name = "CloseButton"
 	close.AutoButtonColor = false
-	close.Text = "✕"
+	close.Text = "X"
 	close.Font = Theme.Fonts.header
-	close.TextSize = 16
+	close.TextSize = 15
 	close.TextColor3 = Theme.Colors.textSecondary
 	close.BackgroundColor3 = Theme.Colors.bgSecondary
-	close.BackgroundTransparency = 0.35
-	close.Size = UDim2.fromOffset(32, 32)
-	close.Position = UDim2.new(1, -40, 0.5, 0)
+	close.BackgroundTransparency = 0.2
+	close.Size = UDim2.fromOffset(34, 34)
+	close.Position = UDim2.new(1, -44, 0.5, 0)
 	close.AnchorPoint = Vector2.new(0, 0.5)
-	close.Parent = header
+	close.Parent = titleRow
 
 	local closeCorner = Instance.new("UICorner")
 	closeCorner.CornerRadius = UDim.new(1, 0)
@@ -1553,25 +1554,27 @@ function MenuSheet:_create()
 	local segmentedHost = Instance.new("Frame")
 	segmentedHost.Name = "SegmentedHost"
 	segmentedHost.BackgroundTransparency = 1
-	segmentedHost.Size = UDim2.new(1, -20, 0, 34)
-	segmentedHost.Position = UDim2.fromOffset(10, 54)
-	segmentedHost.Parent = sheet
+	segmentedHost.Size = UDim2.new(1, -24, 0, 34)
+	segmentedHost.Position = UDim2.fromOffset(12, 60)
+	segmentedHost.Parent = header
 
 	local contentHost = Instance.new("Frame")
 	contentHost.Name = "ContentHost"
 	contentHost.BackgroundTransparency = 1
-	contentHost.Size = UDim2.new(1, -20, 1, -118)
-	contentHost.Position = UDim2.fromOffset(10, 92)
 	contentHost.ClipsDescendants = true
+	contentHost.Size = UDim2.new(1, -24, 1, -(HEADER_HEIGHT + FOOTER_HEIGHT + 8))
+	contentHost.Position = UDim2.fromOffset(12, HEADER_HEIGHT + 4)
+	contentHost.ZIndex = 1
 	contentHost.Parent = sheet
 
 	local footer = Instance.new("Frame")
 	footer.Name = "Footer"
 	footer.BackgroundColor3 = Theme.Colors.bgSecondary
-	footer.BackgroundTransparency = 0.25
-	footer.Size = UDim2.new(1, 0, 0, 28)
+	footer.BackgroundTransparency = 0.15
+	footer.Size = UDim2.new(1, 0, 0, FOOTER_HEIGHT)
 	footer.AnchorPoint = Vector2.new(0, 1)
 	footer.Position = UDim2.new(0, 0, 1, 0)
+	footer.ZIndex = 2
 	footer.Parent = sheet
 
 	local statusLabel = Instance.new("TextLabel")
@@ -1586,7 +1589,6 @@ function MenuSheet:_create()
 	statusLabel.Position = UDim2.fromOffset(10, 0)
 	statusLabel.Parent = footer
 
-	self.backdrop = backdrop
 	self.sheet = sheet
 	self.statusLabel = statusLabel
 	self.contentHost = contentHost
@@ -1642,7 +1644,7 @@ function MenuSheet:_bindDragDismiss(sheet, handle)
 			return
 		end
 		local delta = input.Position.Y - dragStart.Y
-		if delta > 12 then
+		if delta > 10 then
 			dragging = true
 		end
 		if dragging and delta > 0 then
@@ -1675,35 +1677,48 @@ function MenuSheet:_bindDragDismiss(sheet, handle)
 	UserInputService.InputEnded:Connect(finish)
 end
 
+function MenuSheet:_configureScroll(frame)
+	frame.BackgroundTransparency = 1
+	frame.BorderSizePixel = 0
+	frame.Size = UDim2.fromScale(1, 1)
+	frame.CanvasSize = UDim2.new()
+	frame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	frame.ScrollingDirection = Enum.ScrollingDirection.Y
+	frame.ScrollingEnabled = true
+	frame.Active = true
+	frame.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+	frame.ScrollBarThickness = 5
+	frame.ScrollBarImageColor3 = self.theme.Colors.textSecondary
+	frame.ScrollBarImageTransparency = 0.35
+	frame.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+end
+
 function MenuSheet:_buildTabs()
 	for name, builder in pairs(self.modules) do
 		local frame = Instance.new("ScrollingFrame")
 		frame.Name = name .. "Tab"
-		frame.BackgroundTransparency = 1
-		frame.BorderSizePixel = 0
-		frame.Size = UDim2.fromScale(1, 1)
-		frame.CanvasSize = UDim2.new()
-		frame.ScrollBarThickness = 3
-		frame.ScrollBarImageColor3 = self.theme.Colors.textSecondary
+		self:_configureScroll(frame)
 		frame.Visible = name == self.state.activeTab
-		frame:SetAttribute("TargetTransparency", 1)
 		frame.Parent = self.contentHost
 
 		local layout = Instance.new("UIListLayout")
-		layout.Padding = UDim.new(0, 8)
+		layout.Padding = UDim.new(0, 10)
 		layout.SortOrder = Enum.SortOrder.LayoutOrder
 		layout.Parent = frame
 
 		local padding = Instance.new("UIPadding")
-		padding.PaddingBottom = UDim.new(0, 8)
+		padding.PaddingTop = UDim.new(0, 4)
+		padding.PaddingBottom = UDim.new(0, 12)
+		padding.PaddingLeft = UDim.new(0, 2)
+		padding.PaddingRight = UDim.new(0, 2)
 		padding.Parent = frame
-
-		layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-			frame.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 8)
-		end)
 
 		builder(frame)
 		self.tabFrames[name] = frame
+
+		layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			frame.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 20)
+		end)
 	end
 end
 
@@ -1714,26 +1729,24 @@ function MenuSheet:switchTab(tab)
 	local previous = self.tabFrames[self.state.activeTab]
 	local nextFrame = self.tabFrames[tab]
 	self.state.activeTab = tab
-	if previous and nextFrame then
-		self.animation.crossfade(previous, nextFrame, 0.2)
+	if previous then
+		previous.Visible = false
 	end
-	for name, frame in pairs(self.tabFrames) do
-		frame.Visible = name == tab
+	if nextFrame then
+		nextFrame.Visible = true
+		nextFrame.CanvasPosition = Vector2.zero
 	end
 	self:setStatus("Tab: " .. tab)
 end
 
 function MenuSheet:show()
-	self.backdrop.Visible = true
 	self.sheet.Visible = true
 	self.animation.sheetPresent(self.sheet)
 	self.state.menuOpen = true
 end
 
 function MenuSheet:hide()
-	self.animation.sheetDismiss(self.sheet, function()
-		self.backdrop.Visible = false
-	end)
+	self.animation.sheetDismiss(self.sheet)
 	self.state.menuOpen = false
 	if self.onClose then
 		self.onClose()
@@ -2997,17 +3010,11 @@ local function bootstrap(loadModule)
 	})
 	overlay.speedHud:followButton(overlay.button.button)
 
-	overlay.menu:show()
-	overlay.button:setActive(true)
-	overlay.setStatus(string.format("%s • v%s • iOS ready", gameContext:getSummary(), Config.VERSION))
-	Platform.notify("Delta Overlay", string.format("%s v%s • кнопка слева по центру", overlay.game, Config.VERSION))
+	overlay.setStatus(string.format("%s • v%s • tap CC to open", gameContext:getSummary(), Config.VERSION))
+	Platform.notify("Delta Overlay", string.format("%s v%s loaded", overlay.game, Config.VERSION))
 
 	LocalPlayer.CharacterAdded:Connect(function()
 		task.wait(0.6)
-		if not State.minimalMode then
-			overlay.menu:show()
-			overlay.button:setActive(true)
-		end
 		if State.flyEnabled then
 			flyService:setEnabled(true)
 			overlay.setStatus("Fly: " .. flyService:getMode())
