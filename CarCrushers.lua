@@ -106,8 +106,13 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.7.0"
-Config.UI_BUILD = "FULL"
+Config.VERSION = "1.8.0"
+Config.UI_BUILD = "DERBY"
+
+Config.DERBY = {
+	MIN_POWER = 200,
+	MAX_POWER = 900,
+}
 Config.LAYOUT_VERSION = 5
 
 Config.FLY = {
@@ -634,6 +639,10 @@ local State = {
 	searchQuery = "",
 	players = {},
 	statusText = "Ready",
+	derbyAutoKnock = false,
+	derbyPower = 420,
+	derbyBusy = false,
+	derbyTarget = nil,
 }
 
 return State
@@ -1372,13 +1381,13 @@ function FlySpeedHud:_makeBtn(parent, text, size, color)
 	btn.AutoButtonColor = false
 	btn.Text = text
 	btn.Font = Theme.Fonts.header
-	btn.TextSize = 14
+	btn.TextSize = 11
 	btn.TextColor3 = Theme.Colors.textPrimary
 	btn.BackgroundColor3 = color or Theme.Colors.buttonGlass
 	btn.BackgroundTransparency = 0
 	btn.Size = size
 	btn.Parent = parent
-	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 	return btn
 end
 
@@ -1387,65 +1396,58 @@ function FlySpeedHud:_create()
 	local root = Instance.new("Frame")
 	root.Name = "FlyControlHud"
 	root.BackgroundColor3 = Theme.Colors.bgPrimary
-	root.BackgroundTransparency = 0
-	root.Size = UDim2.fromOffset(236, 148)
+	root.BackgroundTransparency = 0.05
+	root.Size = UDim2.fromOffset(168, 92)
 	root.AnchorPoint = Vector2.new(0.5, 1)
-	root.Position = UDim2.new(0.5, 0, 1, -18)
+	root.Position = UDim2.new(0.5, 0, 1, -14)
 	root.Visible = false
 	root.ZIndex = 50
 	root.Parent = self.screenGui
-	Instance.new("UICorner", root).CornerRadius = UDim.new(0, 14)
+	Instance.new("UICorner", root).CornerRadius = UDim.new(0, 10)
 
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 8)
-	pad.PaddingBottom = UDim.new(0, 8)
-	pad.PaddingLeft = UDim.new(0, 8)
-	pad.PaddingRight = UDim.new(0, 8)
+	pad.PaddingTop = UDim.new(0, 5)
+	pad.PaddingBottom = UDim.new(0, 5)
+	pad.PaddingLeft = UDim.new(0, 5)
+	pad.PaddingRight = UDim.new(0, 5)
 	pad.Parent = root
 
 	local speedRow = Instance.new("Frame")
 	speedRow.BackgroundTransparency = 1
-	speedRow.Size = UDim2.new(1, 0, 0, 32)
-	speedRow.Position = UDim2.fromOffset(0, 0)
+	speedRow.Size = UDim2.new(1, 0, 0, 24)
 	speedRow.Parent = root
 
-	self.minusBtn = self:_makeBtn(speedRow, "-", UDim2.fromOffset(36, 32))
-	self.minusBtn.Position = UDim2.fromOffset(0, 0)
-
+	self.minusBtn = self:_makeBtn(speedRow, "-", UDim2.fromOffset(24, 24))
 	self.valueLabel = Instance.new("TextLabel")
 	self.valueLabel.BackgroundColor3 = Theme.Colors.bgSecondary
-	self.valueLabel.BackgroundTransparency = 0
 	self.valueLabel.Font = Theme.Fonts.mono
-	self.valueLabel.TextSize = 14
+	self.valueLabel.TextSize = 11
 	self.valueLabel.TextColor3 = Theme.Colors.textPrimary
-	self.valueLabel.Size = UDim2.new(1, -84, 1, 0)
-	self.valueLabel.Position = UDim2.fromOffset(42, 0)
+	self.valueLabel.Size = UDim2.new(1, -56, 1, 0)
+	self.valueLabel.Position = UDim2.fromOffset(28, 0)
 	self.valueLabel.Parent = speedRow
-	Instance.new("UICorner", self.valueLabel).CornerRadius = UDim.new(0, 8)
-
-	self.plusBtn = self:_makeBtn(speedRow, "+", UDim2.fromOffset(36, 32))
-	self.plusBtn.Position = UDim2.new(1, -36, 0, 0)
+	Instance.new("UICorner", self.valueLabel).CornerRadius = UDim.new(0, 6)
+	self.plusBtn = self:_makeBtn(speedRow, "+", UDim2.fromOffset(24, 24))
+	self.plusBtn.Position = UDim2.new(1, -24, 0, 0)
 
 	local dirRow = Instance.new("Frame")
 	dirRow.BackgroundTransparency = 1
-	dirRow.Size = UDim2.new(1, 0, 0, 36)
-	dirRow.Position = UDim2.fromOffset(0, 40)
+	dirRow.Size = UDim2.new(1, 0, 0, 24)
+	dirRow.Position = UDim2.fromOffset(0, 28)
 	dirRow.Parent = root
 
-	self.upBtn = self:_makeBtn(dirRow, "UP", UDim2.new(0.25, -4, 1, 0))
-	self.upBtn.Position = UDim2.new(0, 0, 0, 0)
-	self.downBtn = self:_makeBtn(dirRow, "DN", UDim2.new(0.25, -4, 1, 0))
-	self.downBtn.Position = UDim2.new(0.25, 2, 0, 0)
-	self.leftBtn = self:_makeBtn(dirRow, "<", UDim2.new(0.25, -4, 1, 0))
-	self.leftBtn.Position = UDim2.new(0.5, 2, 0, 0)
-	self.fwdBtn = self:_makeBtn(dirRow, "FWD", UDim2.new(0.25, -2, 1, 0), Theme.Colors.accent)
-	self.fwdBtn.Position = UDim2.new(0.75, 2, 0, 0)
+	self.upBtn = self:_makeBtn(dirRow, "^", UDim2.new(0.25, -3, 1, 0))
+	self.downBtn = self:_makeBtn(dirRow, "v", UDim2.new(0.25, -3, 1, 0))
+	self.downBtn.Position = UDim2.new(0.25, 1, 0, 0)
+	self.leftBtn = self:_makeBtn(dirRow, "<", UDim2.new(0.25, -3, 1, 0))
+	self.leftBtn.Position = UDim2.new(0.5, 1, 0, 0)
+	self.fwdBtn = self:_makeBtn(dirRow, "F", UDim2.new(0.25, -1, 1, 0), Theme.Colors.accent)
+	self.fwdBtn.Position = UDim2.new(0.75, 1, 0, 0)
 
-	self.autoBtn = self:_makeBtn(root, "Auto drive", UDim2.new(0.48, -4, 0, 34), Theme.Colors.success)
-	self.autoBtn.Position = UDim2.new(0, 0, 1, -34)
-
-	self.lockBtn = self:_makeBtn(root, "Lock seat", UDim2.new(0.48, -4, 0, 34))
-	self.lockBtn.Position = UDim2.new(0.52, 4, 1, -34)
+	self.autoBtn = self:_makeBtn(root, "Auto", UDim2.new(0.48, -3, 0, 24), Theme.Colors.success)
+	self.autoBtn.Position = UDim2.new(0, 0, 1, -24)
+	self.lockBtn = self:_makeBtn(root, "Lock", UDim2.new(0.48, -3, 0, 24))
+	self.lockBtn.Position = UDim2.new(0.52, 3, 1, -24)
 
 	local function bump(delta)
 		local fly = self.config and self.config.FLY or { MIN_SPEED = 16, MAX_SPEED = 600 }
@@ -1499,23 +1501,23 @@ function FlySpeedHud:_create()
 end
 
 function FlySpeedHud:sync()
-	self.valueLabel.Text = "SPD " .. tostring(math.floor(self.state.flySpeed + 0.5))
+	self.valueLabel.Text = tostring(math.floor(self.state.flySpeed + 0.5))
 	self.root.Visible = self.state.flyEnabled
 	self.autoBtn.Visible = not self.state.autoDrive
 	if self.state.autoDrive then
-		self.lockBtn.Size = UDim2.new(1, 0, 0, 34)
-		self.lockBtn.Position = UDim2.new(0, 0, 1, -34)
+		self.lockBtn.Size = UDim2.new(1, 0, 0, 24)
+		self.lockBtn.Position = UDim2.new(0, 0, 1, -24)
 	else
-		self.lockBtn.Size = UDim2.new(0.48, -4, 0, 34)
-		self.lockBtn.Position = UDim2.new(0.52, 4, 1, -34)
+		self.lockBtn.Size = UDim2.new(0.48, -3, 0, 24)
+		self.lockBtn.Position = UDim2.new(0.52, 3, 1, -24)
 	end
 	self.lockBtn.BackgroundColor3 = self.state.seatLock and self.theme.Colors.success or self.theme.Colors.buttonGlass
-	self.lockBtn.Text = self.state.seatLock and "Locked" or "Lock seat"
+	self.lockBtn.Text = self.state.seatLock and "Lock ON" or "Lock"
 end
 
 function FlySpeedHud:followButton(_button)
 	self.root.AnchorPoint = Vector2.new(0.5, 1)
-	self.root.Position = UDim2.new(0.5, 0, 1, -18)
+	self.root.Position = UDim2.new(0.5, 0, 1, -14)
 	self.root.ZIndex = 50
 end
 
@@ -1533,7 +1535,7 @@ return FlySpeedHud
 local MenuSheet = {}
 MenuSheet.__index = MenuSheet
 
-local HEADER_H = 86
+local HEADER_H = 90
 local STATUS_H = 22
 
 function MenuSheet.new(deps)
@@ -1645,7 +1647,7 @@ function MenuSheet:_create()
 	self.components.createSegmented({
 		parent = tabHost,
 		theme = Theme,
-		options = { "Fly", "Nav", "Arena" },
+		options = { "Fly", "Nav", "Arena", "Derby" },
 		default = self.state.activeTab,
 		onChange = function(tab)
 			self:switchTab(tab)
@@ -1885,6 +1887,23 @@ function GameContext:getActiveVehicle()
 	local seat = humanoid and humanoid.SeatPart
 	if seat and seat:IsA("VehicleSeat") then
 		return self:getVehicleFromSeat(seat), seat
+	end
+	return nil, nil
+end
+
+function GameContext:getPlayerVehicle(player)
+	if not player then
+		return nil, nil
+	end
+	local char = player.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+	local seat = humanoid and humanoid.SeatPart
+	if seat then
+		return self:getVehicleFromDescendant(seat), seat
+	end
+	local root = self.utils.getCharacterRoot(player)
+	if root then
+		return self:getVehicleFromDescendant(root), nil
 	end
 	return nil, nil
 end
@@ -2283,6 +2302,10 @@ function FlyService:_start()
 			if not self.defaultCharacterParent then
 				self.defaultCharacterParent = character.Parent
 			end
+			if self.state.derbyBusy then
+				character.Parent = vehicle
+				return
+			end
 			self:_flyVehicle(vehicle, seat, character)
 		else
 			if self.defaultCharacterParent and not self.state.seatLock then
@@ -2536,6 +2559,168 @@ function ArenaService:_guardPulse()
 end
 
 return ArenaService
+]=],
+	["src/Services/DerbyService.lua"] = [=[
+local DerbyService = {}
+DerbyService.__index = DerbyService
+
+function DerbyService.new(state, utils, gameContext, config)
+	local self = setmetatable({}, DerbyService)
+	self.state = state
+	self.utils = utils
+	self.gameContext = gameContext
+	self.config = config
+	self.Players = game:GetService("Players")
+	self.connection = nil
+	self.lastSlam = 0
+	return self
+end
+
+function DerbyService:setPower(value)
+	local derby = self.config.DERBY or { MIN_POWER = 200, MAX_POWER = 900 }
+	self.state.derbyPower = self.utils.clamp(value, derby.MIN_POWER, derby.MAX_POWER)
+end
+
+function DerbyService:getTargetRoot(player)
+	local vehicle = self.gameContext:getPlayerVehicle(player)
+	if vehicle then
+		local cf = self.gameContext:getVehicleCFrame(vehicle)
+		if cf then
+			return cf.Position, vehicle
+		end
+	end
+	local root = self.utils.getCharacterRoot(player)
+	if root then
+		return root.Position, nil
+	end
+	return nil, nil
+end
+
+function DerbyService:collectTargets()
+	local localRoot = self.utils.getLocalRoot()
+	local rows = {}
+	for _, player in ipairs(self.Players:GetPlayers()) do
+		if player ~= self.Players.LocalPlayer then
+			local pos = self:getTargetRoot(player)
+			local distance = 1e9
+			if localRoot and pos then
+				distance = (localRoot.Position - pos).Magnitude
+			end
+			table.insert(rows, {
+				player = player,
+				name = player.DisplayName ~= player.Name and (player.DisplayName .. " @" .. player.Name)
+					or player.Name,
+				distance = distance,
+				inCar = self.gameContext:getPlayerVehicle(player) ~= nil,
+			})
+		end
+	end
+	table.sort(rows, function(a, b)
+		return a.distance < b.distance
+	end)
+	return rows
+end
+
+function DerbyService:getNearest()
+	local rows = self:collectTargets()
+	return rows[1]
+end
+
+function DerbyService:_applyHit(vehicle, dir, power)
+	local vel = dir * power
+	for _, part in ipairs(vehicle:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.AssemblyLinearVelocity = vel
+			part.AssemblyAngularVelocity = Vector3.zero
+			pcall(function()
+				part.Velocity = vel
+			end)
+		end
+	end
+end
+
+function DerbyService:slam(player)
+	if not player or not player.Parent then
+		return false, "no player"
+	end
+
+	local myVehicle, mySeat = self.gameContext:getActiveVehicle()
+	if not myVehicle or not mySeat then
+		return false, "sit in a car"
+	end
+	if not self.gameContext:prepareVehicle(myVehicle, mySeat) then
+		return false, "car not ready"
+	end
+
+	local targetPos = self:getTargetRoot(player)
+	if not targetPos then
+		return false, "no target"
+	end
+
+	local myCF = self.gameContext:getVehicleCFrame(myVehicle)
+	if not myCF then
+		return false, "no car cframe"
+	end
+
+	local dir = targetPos - myCF.Position
+	if dir.Magnitude < 1 then
+		dir = myCF.LookVector
+	else
+		dir = dir.Unit
+	end
+
+	local hitPos = targetPos - dir * 6
+	local slamCF = CFrame.new(hitPos, targetPos)
+	self.state.derbyBusy = true
+	self.gameContext:setVehicleCFrame(myVehicle, slamCF)
+	self:_applyHit(myVehicle, dir, self.state.derbyPower or 420)
+
+	task.delay(0.35, function()
+		self.state.derbyBusy = self.state.derbyAutoKnock == true
+	end)
+
+	return true
+end
+
+function DerbyService:setAutoKnock(enabled)
+	self.state.derbyAutoKnock = enabled
+	self.state.derbyBusy = enabled
+	if enabled then
+		self:_start()
+	else
+		self:_stop()
+	end
+end
+
+function DerbyService:_start()
+	self:_stop()
+	self.connection = game:GetService("RunService").Heartbeat:Connect(function()
+		if not self.state.derbyAutoKnock then
+			return
+		end
+		local now = os.clock()
+		if now - self.lastSlam < 0.22 then
+			return
+		end
+		self.lastSlam = now
+		local nearest = self:getNearest()
+		if nearest and nearest.distance < 400 then
+			self.state.derbyTarget = nearest.player
+			self:slam(nearest.player)
+		end
+	end)
+end
+
+function DerbyService:_stop()
+	if self.connection then
+		self.connection:Disconnect()
+		self.connection = nil
+	end
+	self.state.derbyBusy = false
+	self.state.derbyTarget = nil
+end
+
+return DerbyService
 ]=],
 	["src/Modules/FlyModule.lua"] = [=[
 local function buildFlyModule(deps)
@@ -2936,6 +3121,138 @@ end
 
 return buildArenaModule
 ]=],
+	["src/Modules/DerbyModule.lua"] = [=[
+local function buildDerbyModule(deps)
+	local Theme = deps.theme
+	local Components = deps.components
+	local Utils = deps.utils
+	local State = deps.state
+	local DerbyService = deps.derbyService
+	local Config = deps.config
+	local setStatus = deps.setStatus
+
+	return function(parent)
+		Components.createLabel({
+			parent = parent,
+			text = "Derby KO",
+			font = Theme.Fonts.header,
+			size = Theme.Sizes.header,
+			color = Theme.Colors.textPrimary,
+			sizeDim = UDim2.new(1, 0, 0, 22),
+			auto = Enum.AutomaticSize.None,
+		})
+
+		Components.createSwitch({
+			parent = parent,
+			theme = Theme,
+			label = "Auto KO nearest",
+			default = State.derbyAutoKnock,
+			onChange = function(value)
+				DerbyService:setAutoKnock(value)
+				setStatus(value and "Auto KO on" or "Auto KO off")
+			end,
+		})
+
+		Components.createSlider({
+			parent = parent,
+			theme = Theme,
+			utils = Utils,
+			label = "Knock power",
+			min = (Config and Config.DERBY and Config.DERBY.MIN_POWER) or 200,
+			max = (Config and Config.DERBY and Config.DERBY.MAX_POWER) or 900,
+			default = State.derbyPower,
+			onChange = function(value)
+				DerbyService:setPower(value)
+				setStatus(string.format("Knock %d", math.floor(value)))
+			end,
+		})
+
+		local btnRow = Instance.new("Frame")
+		btnRow.BackgroundTransparency = 1
+		btnRow.Size = UDim2.new(1, 0, 0, 36)
+		btnRow.Parent = parent
+
+		local btnLayout = Instance.new("UIListLayout")
+		btnLayout.FillDirection = Enum.FillDirection.Horizontal
+		btnLayout.Padding = UDim.new(0, 8)
+		btnLayout.Parent = btnRow
+
+		Components.createActionButton({
+			parent = btnRow,
+			theme = Theme,
+			utils = Utils,
+			text = "KO nearest",
+			color = Theme.Colors.accent,
+			size = UDim2.new(0.5, -4, 1, 0),
+			onClick = function()
+				local nearest = DerbyService:getNearest()
+				if not nearest then
+					setStatus("No players")
+					return
+				end
+				local ok, err = DerbyService:slam(nearest.player)
+				setStatus(ok and ("KO → " .. nearest.name) or (err or "KO failed"))
+			end,
+		})
+
+		Components.createActionButton({
+			parent = btnRow,
+			theme = Theme,
+			utils = Utils,
+			text = "Refresh",
+			size = UDim2.new(0.5, -4, 1, 0),
+			onClick = function()
+				refreshList()
+			end,
+		})
+
+		local listHost = Instance.new("Frame")
+		listHost.BackgroundTransparency = 1
+		listHost.Size = UDim2.new(1, 0, 0, 0)
+		listHost.AutomaticSize = Enum.AutomaticSize.Y
+		listHost.Parent = parent
+
+		local listLayout = Instance.new("UIListLayout")
+		listLayout.Padding = UDim.new(0, 6)
+		listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		listLayout.Parent = listHost
+
+		function refreshList()
+			for _, child in ipairs(listHost:GetChildren()) do
+				if child:IsA("GuiObject") then
+					child:Destroy()
+				end
+			end
+
+			local rows = DerbyService:collectTargets()
+			for _, data in ipairs(rows) do
+				Components.createActionButton({
+					parent = listHost,
+					theme = Theme,
+					utils = Utils,
+					text = string.format(
+						"KO %s  %.0f%s",
+						data.name,
+						data.distance == 1e9 and 0 or data.distance,
+						data.inCar and " car" or ""
+					),
+					color = data.inCar and Theme.Colors.danger or Theme.Colors.bgSecondary,
+					size = UDim2.new(1, 0, 0, 36),
+					onClick = function()
+						local ok, err = DerbyService:slam(data.player)
+						setStatus(ok and ("KO → " .. data.name) or (err or "KO failed"))
+					end,
+				})
+			end
+			setStatus(string.format("%d targets", #rows))
+		end
+
+		refreshList()
+	end
+end
+
+return buildDerbyModule
+]=],
 }
 
 local function embeddedLoadModule(path)
@@ -2990,9 +3307,11 @@ local function bootstrap(loadModule)
 	local FlyService = loadModule("src/Services/FlyService.lua")
 	local NavService = loadModule("src/Services/NavService.lua")
 	local ArenaService = loadModule("src/Services/ArenaService.lua")
+	local DerbyService = loadModule("src/Services/DerbyService.lua")
 	local buildFlyModule = loadModule("src/Modules/FlyModule.lua")
 	local buildNavModule = loadModule("src/Modules/NavModule.lua")
 	local buildArenaModule = loadModule("src/Modules/ArenaModule.lua")
+	local buildDerbyModule = loadModule("src/Modules/DerbyModule.lua")
 
 	local g = getgenv and getgenv() or _G
 	g.DeltaOverlay = g.DeltaOverlay or {}
@@ -3037,7 +3356,7 @@ local function bootstrap(loadModule)
 	local gameContext = GameContext.new(Config, Utils)
 
 	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "DeltaOverlay_v160"
+	screenGui.Name = "DeltaOverlay_v170"
 	screenGui.ResetOnSpawn = false
 	screenGui.IgnoreGuiInset = true
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -3048,6 +3367,7 @@ local function bootstrap(loadModule)
 	local flyService = FlyService.new(State, Utils, gameContext, Config, Platform)
 	local navService = NavService.new(State, Utils, Theme, gameContext, Config)
 	local arenaService = ArenaService.new(State, Utils, gameContext, navService)
+	local derbyService = DerbyService.new(State, Utils, gameContext, Config)
 
 	local overlay = {
 		version = Config.VERSION,
@@ -3121,6 +3441,15 @@ local function bootstrap(loadModule)
 			arenaService = arenaService,
 			setStatus = overlay.setStatus,
 			onMinimalChange = onMinimalChange,
+		}),
+		Derby = buildDerbyModule({
+			theme = Theme,
+			components = Components,
+			utils = Utils,
+			state = State,
+			config = Config,
+			derbyService = derbyService,
+			setStatus = overlay.setStatus,
 		}),
 	}
 
