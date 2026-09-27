@@ -106,7 +106,7 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.9.1"
+Config.VERSION = "2.0.0"
 Config.UI_BUILD = "GOD"
 
 Config.DERBY = {
@@ -1464,7 +1464,7 @@ function FlySpeedHud:_create()
 	self.grabber = Instance.new("TextButton")
 	self.grabber.Name = "Grabber"
 	self.grabber.AutoButtonColor = false
-	self.grabber.Text = "::::"
+	self.grabber.Text = "v" .. ((self.config and self.config.VERSION) or "?") .. "  drag"
 	self.grabber.Font = Theme.Fonts.header
 	self.grabber.TextSize = 10
 	self.grabber.TextColor3 = Theme.Colors.textSecondary
@@ -1727,7 +1727,7 @@ function MenuSheet:_create()
 	title.TextSize = 16
 	title.TextColor3 = Theme.Colors.textPrimary
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = "CC2  v" .. version
+	title.Text = "CC2  LOADED v" .. version
 	title.Size = UDim2.new(1, -56, 0, 28)
 	title.Position = UDim2.fromOffset(12, 8)
 	title.ZIndex = 12
@@ -3701,7 +3701,7 @@ local function bootstrap(loadModule)
 	local gameContext = GameContext.new(Config, Utils)
 
 	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "DeltaOverlay_v190"
+	screenGui.Name = "DeltaOverlay_v200"
 	screenGui.ResetOnSpawn = false
 	screenGui.IgnoreGuiInset = true
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -3714,6 +3714,7 @@ local function bootstrap(loadModule)
 	local arenaService = ArenaService.new(State, Utils, gameContext, navService)
 	local derbyService = DerbyService.new(State, Utils, gameContext, Config)
 	local godService = GodService.new(State, gameContext)
+	godService:setEnabled(true)
 
 	local overlay = {
 		version = Config.VERSION,
@@ -3843,10 +3844,13 @@ local function bootstrap(loadModule)
 		setStatus = overlay.setStatus,
 	})
 
+	State.flyHudOpen = true
+	overlay.speedHud:sync()
 	overlay.menu:show()
 	overlay.button:setActive(true)
-	overlay.setStatus(string.format("%s • %s v%s", gameContext:getSummary(), Config.UI_BUILD, Config.VERSION))
-	Platform.notify("CC2 Overlay", Config.UI_BUILD .. " v" .. Config.VERSION)
+	overlay.setStatus(string.format("LOADED v%s • GOD on your car only", Config.VERSION))
+	Platform.notify("LOADED v" .. Config.VERSION, "GOD ON • своя тачка, чужие ломаются")
+	print("[CC2 Overlay] LOADED v" .. Config.VERSION)
 
 	LocalPlayer.CharacterAdded:Connect(function()
 		task.wait(0.6)
