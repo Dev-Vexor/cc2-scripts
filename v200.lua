@@ -106,8 +106,8 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "2.0.1"
-Config.UI_BUILD = "GOD"
+Config.VERSION = "2.1.0"
+Config.UI_BUILD = "GUARD"
 
 Config.DERBY = {
 	MIN_POWER = 200,
@@ -647,7 +647,7 @@ local State = {
 	flyForward = 0,
 	flyStrafe = 0,
 	autoDrive = true,
-	seatLock = false,
+	seatLock = true,
 	flyMode = "Off",
 	presenceGuard = false,
 	searchQuery = "",
@@ -1556,7 +1556,7 @@ function FlySpeedHud:_create()
 	self.flyBtn.MouseButton1Click:Connect(function()
 		local nextValue = not self.state.flyEnabled
 		self.flyService:setEnabled(nextValue)
-		self.state.flyHudOpen = true
+		self.state.flyHudOpen = nextValue
 		self:sync()
 		self.setStatus(nextValue and "Fly on" or "Fly off")
 	end)
@@ -2029,6 +2029,26 @@ function GameContext:getActiveVehicle()
 	return nil, nil
 end
 
+function GameContext:getLocalCar()
+	local vehicle = self:getActiveVehicle()
+	if vehicle then
+		return vehicle
+	end
+	local playerName = self.player.Name
+	local names = {
+		playerName .. "'s Car",
+		playerName .. "'sCar",
+		playerName .. "s Car",
+	}
+	for _, name in ipairs(names) do
+		local inst = workspace:FindFirstChild(name, true)
+		if inst and inst:IsA("Model") then
+			return inst
+		end
+	end
+	return nil
+end
+
 function GameContext:getPlayerVehicle(player)
 	if not player then
 		return nil, nil
@@ -2129,7 +2149,6 @@ function GameContext:teleportVehicle(cf)
 		return false
 	end
 
-	char.Parent = vehicle
 	return self:setVehicleCFrame(vehicle, cf)
 end
 
@@ -2180,6 +2199,7 @@ end
 function FlyService:setEnabled(enabled)
 	self.state.flyEnabled = enabled
 	if enabled then
+		self.state.seatLock = true
 		self:_start()
 	else
 		self:_stop()
@@ -2255,8 +2275,12 @@ function FlyService:_applyImpactVelocity(vehicle, worldMove)
 		vel = camera.CFrame.LookVector * speed
 	end
 
+	local character = game:GetService("Players").LocalPlayer.Character
 	for _, part in ipairs(vehicle:GetDescendants()) do
 		if part:IsA("BasePart") then
+			if character and part:IsDescendantOf(character) then
+				continue
+			end
 			part.AssemblyLinearVelocity = vel
 			part.AssemblyAngularVelocity = Vector3.zero
 			pcall(function()
@@ -2271,7 +2295,7 @@ function FlyService:_flyVehicle(vehicle, seat, character)
 		return
 	end
 
-	character.Parent = vehicle
+	self:_lockToSeat(character, seat)
 
 	local camera = workspace.CurrentCamera
 	local current = self.gameContext:getVehicleCFrame(vehicle)
@@ -2336,6 +2360,29 @@ function FlyService:_humanoid()
 	return character and character:FindFirstChildOfClass("Humanoid"), character
 end
 
+function FlyService:_lockToSeat(character, seat)
+	if not character or not seat then
+		return
+	end
+	local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
+	if not root then
+		return
+	end
+	if character.Parent ~= workspace then
+		character.Parent = workspace
+	end
+	local weld = root:FindFirstChild("LockSeatWeld")
+	if not weld then
+		weld = Instance.new("WeldConstraint")
+		weld.Name = "LockSeatWeld"
+		weld.Parent = root
+	end
+	weld.Part0 = seat
+	weld.Part1 = root
+	root.AssemblyLinearVelocity = seat.AssemblyLinearVelocity
+	root.AssemblyAngularVelocity = Vector3.zero
+end
+
 function FlyService:_keepSeated()
 	if not self.state.seatLock then
 		return
@@ -2346,10 +2393,15 @@ function FlyService:_keepSeated()
 		return
 	end
 
+	if character.Parent ~= workspace then
+		character.Parent = workspace
+	end
+
 	humanoid.Jump = false
 	humanoid.Sit = true
 	pcall(function()
 		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
 		humanoid.JumpPower = 0
 		humanoid.JumpHeight = 0
 	end)
@@ -2364,11 +2416,11 @@ function FlyService:_keepSeated()
 		end)
 	end
 
-	if seat and character then
-		local parent = self.gameContext:getVehicleFromSeat(seat)
-		if parent then
-			character.Parent = parent
-		end
+	if seat then
+		pcall(function()
+			seat:Sit(humanoid)
+		end)
+		self:_lockToSeat(character, seat)
 	end
 end
 
@@ -2407,9 +2459,11 @@ function FlyService:_startLockLoop()
 	if self.lockConn then
 		return
 	end
-	self.lockConn = game:GetService("RunService").Heartbeat:Connect(function()
+	local function lockTick()
 		self:_keepSeated()
-	end)
+	end
+	self.lockConn = game:GetService("RunService").Heartbeat:Connect(lockTick)
+	game:GetService("RunService").Stepped:Connect(lockTick)
 end
 
 function FlyService:_start()
@@ -2441,13 +2495,17 @@ function FlyService:_start()
 				self.defaultCharacterParent = character.Parent
 			end
 			if self.state.derbyBusy then
-				character.Parent = vehicle
+				self:_lockToSeat(character, seat)
 				return
 			end
 			self:_flyVehicle(vehicle, seat, character)
 		else
-			if self.defaultCharacterParent and not self.state.seatLock then
-				character.Parent = self.defaultCharacterParent
+			if self.state.seatLock and self.lastSeat and self.lastSeat.Parent then
+				pcall(function()
+					self.lastSeat:Sit(humanoid)
+				end)
+				self:_lockToSeat(character, self.lastSeat)
+				return
 			end
 			self:_flyCharacter(root, humanoid)
 		end
@@ -2474,8 +2532,8 @@ function FlyService:_stop(keepLockLoop)
 		humanoid.PlatformStand = false
 	end
 
-	if character and self.defaultCharacterParent and not self.state.seatLock then
-		character.Parent = self.defaultCharacterParent
+	if character and character.Parent ~= workspace then
+		character.Parent = workspace
 	end
 
 	if not keepLockLoop then
@@ -2901,8 +2959,10 @@ function GodService.new(state, gameContext)
 	self.state = state
 	self.gameContext = gameContext
 	self.connection = nil
+	self.stepConn = nil
 	self.healthConn = nil
-	self.localVehicle = nil
+	self.snapshot = {}
+	self.snapshotCar = nil
 	self:_start()
 	return self
 end
@@ -2910,6 +2970,8 @@ end
 function GodService:setEnabled(enabled)
 	self.state.godMode = enabled
 	if enabled then
+		self.snapshot = {}
+		self.snapshotCar = nil
 		self:_protectHumanoid()
 		self:_protectLocalCar()
 	end
@@ -2919,14 +2981,8 @@ function GodService:_isLocalVehicle(vehicle)
 	if not vehicle then
 		return false
 	end
-	local mine = self.gameContext:getActiveVehicle()
-	if mine and vehicle == mine then
-		return true
-	end
-	local playerName = game:GetService("Players").LocalPlayer.Name
-	return vehicle.Name == playerName .. "'s Car"
-		or vehicle.Name == playerName .. "'sCar"
-		or vehicle:IsDescendantOf(mine or vehicle) == false and mine == vehicle
+	local mine = self.gameContext:getLocalCar()
+	return mine ~= nil and vehicle == mine
 end
 
 function GodService:_protectHumanoid()
@@ -2975,7 +3031,6 @@ function GodService:_restoreValues(root)
 			end
 		end
 	end
-
 	pcall(function()
 		root:SetAttribute("Broken", false)
 		root:SetAttribute("Destroyed", false)
@@ -2983,24 +3038,56 @@ function GodService:_restoreValues(root)
 	end)
 end
 
+function GodService:_captureSnapshot(vehicle)
+	local primary = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart", true)
+	if not primary then
+		return
+	end
+	self.snapshot = {}
+	self.snapshotCar = vehicle
+	for _, part in ipairs(vehicle:GetDescendants()) do
+		if part:IsA("BasePart") and not isWheelPart(part) then
+			self.snapshot[part] = primary.CFrame:ToObjectSpace(part.CFrame)
+		end
+	end
+end
+
+function GodService:_restoreSnapshot(vehicle)
+	local primary = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart", true)
+	if not primary or self.snapshotCar ~= vehicle then
+		self:_captureSnapshot(vehicle)
+		return
+	end
+	for part, rel in pairs(self.snapshot) do
+		if part.Parent then
+			local target = primary.CFrame * rel
+			if (part.Position - target.Position).Magnitude > 1.2 then
+				part.CFrame = target
+			end
+		end
+	end
+end
+
 function GodService:_reweldLocal(vehicle)
 	local primary = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart", true)
 	if not primary then
 		return
 	end
-
 	for _, part in ipairs(vehicle:GetDescendants()) do
 		if part:IsA("BasePart") and part ~= primary and not isWheelPart(part) then
-			if part.Transparency > 0.85 then
+			if part.Transparency > 0.8 then
 				part.Transparency = 0
 			end
 			pcall(function()
 				if #part:GetJoints() == 0 then
-					local weld = Instance.new("WeldConstraint")
-					weld.Name = "GodWeld"
+					local weld = part:FindFirstChild("GodWeld")
+					if not weld then
+						weld = Instance.new("WeldConstraint")
+						weld.Name = "GodWeld"
+						weld.Parent = part
+					end
 					weld.Part0 = primary
 					weld.Part1 = part
-					weld.Parent = part
 				end
 			end)
 		end
@@ -3008,15 +3095,16 @@ function GodService:_reweldLocal(vehicle)
 end
 
 function GodService:_protectLocalCar()
-	local vehicle = self.gameContext:getActiveVehicle()
+	local vehicle = self.gameContext:getLocalCar()
 	if not vehicle or not self:_isLocalVehicle(vehicle) then
 		return
 	end
-
-	self.localVehicle = vehicle
+	if self.snapshotCar ~= vehicle or next(self.snapshot) == nil then
+		self:_captureSnapshot(vehicle)
+	end
 	self:_restoreValues(vehicle)
+	self:_restoreSnapshot(vehicle)
 	self:_reweldLocal(vehicle)
-
 	local body = vehicle:FindFirstChild("Body")
 	if body then
 		self:_restoreValues(body)
@@ -3036,16 +3124,210 @@ function GodService:_start()
 		end
 	end)
 
-	self.connection = game:GetService("RunService").Heartbeat:Connect(function()
+	local function tick()
 		if not self.state.godMode then
 			return
 		end
 		self:_protectHumanoid()
 		self:_protectLocalCar()
-	end)
+	end
+
+	self.connection = game:GetService("RunService").Heartbeat:Connect(tick)
+	self.stepConn = game:GetService("RunService").Stepped:Connect(tick)
 end
 
 return GodService
+]=],
+	["src/Services/LifeGuard.lua"] = [=[
+local LifeGuard = {}
+LifeGuard.__index = LifeGuard
+
+function LifeGuard.new(state, utils, gameContext, flyService)
+	local self = setmetatable({}, LifeGuard)
+	self.state = state
+	self.utils = utils
+	self.gameContext = gameContext
+	self.flyService = flyService
+	self.lastSafe = CFrame.new(0, 20, 0)
+	self.lastSeat = nil
+	self.recovering = false
+	self:_start()
+	return self
+end
+
+function LifeGuard:_badVector(v)
+	if typeof(v) ~= "Vector3" then
+		return true
+	end
+	if v.X ~= v.X or v.Y ~= v.Y or v.Z ~= v.Z then
+		return true
+	end
+	if math.abs(v.X) > 50000 or math.abs(v.Z) > 50000 then
+		return true
+	end
+	if v.Y < -150 or v.Y > 3500 then
+		return true
+	end
+	return false
+end
+
+function LifeGuard:_workspaceParent()
+	return workspace
+end
+
+function LifeGuard:_restoreCharacterParent(character)
+	if not character then
+		return
+	end
+	if character.Parent ~= workspace and character.Parent ~= game:GetService("Players") then
+		character.Parent = workspace
+	end
+end
+
+function LifeGuard:_sitBack(humanoid)
+	local seat = self.lastSeat
+	if self.flyService and self.flyService.lastSeat then
+		seat = self.flyService.lastSeat
+	end
+	if seat and seat.Parent and humanoid then
+		pcall(function()
+			humanoid.Sit = true
+			humanoid.Jump = false
+			seat:Sit(humanoid)
+		end)
+	end
+end
+
+function LifeGuard:_recover(reason)
+	if self.recovering then
+		return
+	end
+	self.recovering = true
+
+	local player = game:GetService("Players").LocalPlayer
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local root = self.utils.getLocalRoot()
+
+	if character then
+		self:_restoreCharacterParent(character)
+	end
+
+	if humanoid then
+		pcall(function()
+			humanoid.Health = math.max(humanoid.Health, humanoid.MaxHealth)
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+			humanoid.PlatformStand = false
+		end)
+		self:_sitBack(humanoid)
+	end
+
+	local vehicle = self.gameContext:getLocalCar()
+	if vehicle then
+		self.gameContext:setVehicleCFrame(vehicle, self.lastSafe)
+	elseif root then
+		root.CFrame = self.lastSafe + Vector3.new(0, 4, 0)
+		root.AssemblyLinearVelocity = Vector3.zero
+	end
+
+	self.state.statusText = "Recover: " .. tostring(reason)
+	task.delay(0.4, function()
+		self.recovering = false
+	end)
+end
+
+function LifeGuard:_tick()
+	local player = game:GetService("Players").LocalPlayer
+	local character = player.Character
+	if not character then
+		return
+	end
+
+	self:_restoreCharacterParent(character)
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local root = self.utils.getLocalRoot()
+	local vehicle, seat = self.gameContext:getActiveVehicle()
+	if seat then
+		self.lastSeat = seat
+	end
+
+	if humanoid then
+		pcall(function()
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+			humanoid.BreakJointsOnDeath = false
+			if humanoid.Health < humanoid.MaxHealth * 0.35 then
+				humanoid.Health = humanoid.MaxHealth
+			end
+		end)
+		if humanoid:GetState() == Enum.HumanoidStateType.Dead then
+			humanoid.Health = humanoid.MaxHealth
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+			self:_recover("dead")
+			return
+		end
+	end
+
+	if root then
+		if self:_badVector(root.Position) then
+			self:_recover("bad pos")
+			return
+		end
+		if root.Position.Y > 10 and root.Position.Y < 800 then
+			local veh = vehicle or self.gameContext:getLocalCar()
+			if veh then
+				local cf = self.gameContext:getVehicleCFrame(veh)
+				if cf and not self:_badVector(cf.Position) then
+					self.lastSafe = cf
+				end
+			else
+				self.lastSafe = root.CFrame
+			end
+		end
+	elseif humanoid then
+		self:_recover("no root")
+	end
+end
+
+function LifeGuard:_start()
+	local player = game:GetService("Players").LocalPlayer
+
+	player.CharacterAdded:Connect(function(character)
+		task.wait(0.25)
+		self:_restoreCharacterParent(character)
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			pcall(function()
+				humanoid.BreakJointsOnDeath = false
+				humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+				humanoid.Health = humanoid.MaxHealth
+			end)
+			self:_sitBack(humanoid)
+			humanoid.Died:Connect(function()
+				self:_recover("died")
+			end)
+		end
+		local root = self.utils.getLocalRoot()
+		if root and not self:_badVector(self.lastSafe.Position) then
+			root.CFrame = self.lastSafe + Vector3.new(0, 3, 0)
+		end
+	end)
+
+	if player.Character then
+		local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.Died:Connect(function()
+				self:_recover("died")
+			end)
+		end
+	end
+
+	game:GetService("RunService").Heartbeat:Connect(function()
+		self:_tick()
+	end)
+end
+
+return LifeGuard
 ]=],
 	["src/Modules/FlyModule.lua"] = [=[
 local function buildFlyModule(deps)
@@ -3653,6 +3935,7 @@ local function bootstrap(loadModule)
 	local ArenaService = loadModule("src/Services/ArenaService.lua")
 	local DerbyService = loadModule("src/Services/DerbyService.lua")
 	local GodService = loadModule("src/Services/GodService.lua")
+	local LifeGuard = loadModule("src/Services/LifeGuard.lua")
 	local buildFlyModule = loadModule("src/Modules/FlyModule.lua")
 	local buildNavModule = loadModule("src/Modules/NavModule.lua")
 	local buildArenaModule = loadModule("src/Modules/ArenaModule.lua")
@@ -3701,7 +3984,7 @@ local function bootstrap(loadModule)
 	local gameContext = GameContext.new(Config, Utils)
 
 	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "DeltaOverlay_v200"
+	screenGui.Name = "DeltaOverlay_v210"
 	screenGui.ResetOnSpawn = false
 	screenGui.IgnoreGuiInset = true
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -3715,6 +3998,7 @@ local function bootstrap(loadModule)
 	local derbyService = DerbyService.new(State, Utils, gameContext, Config)
 	local godService = GodService.new(State, gameContext)
 	godService:setEnabled(true)
+	local lifeGuard = LifeGuard.new(State, Utils, gameContext, flyService)
 
 	local overlay = {
 		version = Config.VERSION,
@@ -3761,7 +4045,7 @@ local function bootstrap(loadModule)
 				end
 			end,
 			onFlyChange = function(enabled)
-				State.flyHudOpen = true
+				State.flyHudOpen = enabled
 				if overlay.speedHud then
 					overlay.speedHud:sync()
 				end
@@ -3844,12 +4128,10 @@ local function bootstrap(loadModule)
 		setStatus = overlay.setStatus,
 	})
 
-	State.flyHudOpen = true
-	overlay.speedHud:sync()
 	overlay.menu:show()
 	overlay.button:setActive(true)
-	overlay.setStatus(string.format("LOADED v%s • GOD on your car only", Config.VERSION))
-	Platform.notify("LOADED v" .. Config.VERSION, "GOD ON • своя тачка, чужие ломаются")
+	overlay.setStatus(string.format("LOADED v%s • Fly HUD only from Fly switch", Config.VERSION))
+	Platform.notify("LOADED v" .. Config.VERSION, "Fly HUD only from menu Fly")
 	print("[CC2 Overlay] LOADED v" .. Config.VERSION)
 
 	LocalPlayer.CharacterAdded:Connect(function()
