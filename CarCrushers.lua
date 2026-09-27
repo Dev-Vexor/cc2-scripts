@@ -106,8 +106,8 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.5.0"
-Config.UI_BUILD = "AUTO_TOP"
+Config.VERSION = "1.6.0"
+Config.UI_BUILD = "MENU"
 Config.LAYOUT_VERSION = 5
 
 Config.FLY = {
@@ -932,7 +932,12 @@ function Components.createSegmented(props)
 		buttons[option] = button
 	end
 
-	select(selected)
+	selected = props.default or props.options[1]
+	for opt, button in pairs(buttons) do
+		local active = opt == selected
+		button.BackgroundColor3 = active and Theme.Colors.accent or Theme.Colors.bgSecondary
+		button.TextColor3 = active and Theme.Colors.textPrimary or Theme.Colors.textSecondary
+	end
 
 	return container, {
 		set = select,
@@ -1469,7 +1474,8 @@ return FlySpeedHud
 local MenuSheet = {}
 MenuSheet.__index = MenuSheet
 
-local HEADER_HEIGHT = 92
+local HEADER_H = 86
+local STATUS_H = 22
 
 function MenuSheet.new(deps)
 	local self = setmetatable({}, MenuSheet)
@@ -1480,127 +1486,106 @@ function MenuSheet.new(deps)
 	self.screenGui = deps.screenGui
 	self.modules = deps.modules
 	self.onClose = deps.onClose
-	self.setStatusFn = deps.setStatus
 	self.config = deps.config
+	self.tabFrames = {}
 
 	self.panel = self:_create()
-	self.tabFrames = {}
 	self:_buildTabs()
-	self:_bindViewport()
-
-	task.defer(function()
-		self:_layout()
-	end)
-
+	self:_bindResize()
+	self:_layout()
 	return self
 end
 
 function MenuSheet:_create()
 	local Theme = self.theme
+	local version = (self.config and self.config.VERSION) or "?"
 
 	local panel = Instance.new("Frame")
 	panel.Name = "TopMenuPanel"
-	panel.AnchorPoint = Vector2.new(0, 0)
-	panel.Position = UDim2.fromOffset(0, 0)
-	panel.Size = UDim2.fromOffset(320, 320)
 	panel.BackgroundColor3 = Theme.Colors.bgPrimary
 	panel.BackgroundTransparency = 0
+	panel.BorderSizePixel = 0
 	panel.Visible = false
-	panel.ZIndex = 20
 	panel.ClipsDescendants = true
+	panel.ZIndex = 10
 	panel.Parent = self.screenGui
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, Theme.Sizes.cornerSheet)
+	corner.CornerRadius = UDim.new(0, 16)
 	corner.Parent = panel
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Theme.Colors.textSecondary
-	stroke.Transparency = 0.55
-	stroke.Thickness = 1
-	stroke.Parent = panel
 
 	local header = Instance.new("Frame")
 	header.Name = "Header"
 	header.BackgroundColor3 = Theme.Colors.bgSecondary
 	header.BackgroundTransparency = 0
-	header.Size = UDim2.new(1, 0, 0, HEADER_HEIGHT)
-	header.Position = UDim2.fromOffset(0, 0)
-	header.ZIndex = 2
+	header.BorderSizePixel = 0
+	header.Size = UDim2.new(1, 0, 0, HEADER_H)
+	header.ZIndex = 11
 	header.Parent = panel
-
-	local titleRow = Instance.new("Frame")
-	titleRow.BackgroundTransparency = 1
-	titleRow.Size = UDim2.new(1, 0, 0, 34)
-	titleRow.Position = UDim2.fromOffset(0, 8)
-	titleRow.Parent = header
 
 	local title = Instance.new("TextLabel")
 	title.BackgroundTransparency = 1
 	title.Font = Theme.Fonts.header
-	title.TextSize = Theme.Sizes.header
+	title.TextSize = 16
 	title.TextColor3 = Theme.Colors.textPrimary
-	title.Text = "CC2 Menu"
-	title.Size = UDim2.new(1, -140, 1, 0)
-	title.Position = UDim2.fromOffset(12, 0)
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Parent = titleRow
-
-	local buildLabel = Instance.new("TextLabel")
-	buildLabel.Name = "BuildLabel"
-	buildLabel.BackgroundTransparency = 1
-	buildLabel.Font = Theme.Fonts.mono
-	buildLabel.TextSize = 11
-	buildLabel.TextColor3 = Theme.Colors.success
-	buildLabel.TextXAlignment = Enum.TextXAlignment.Left
-	buildLabel.Size = UDim2.fromOffset(120, 16)
-	buildLabel.Position = UDim2.fromOffset(12, 22)
-	buildLabel.Text = (self.config and self.config.UI_BUILD or "UI") .. " v"
-		.. (self.config and self.config.VERSION or "?")
-	buildLabel.Parent = titleRow
+	title.Text = "CC2  v" .. version
+	title.Size = UDim2.new(1, -56, 0, 28)
+	title.Position = UDim2.fromOffset(12, 8)
+	title.ZIndex = 12
+	title.Parent = header
 
 	local close = Instance.new("TextButton")
 	close.Name = "CloseButton"
 	close.AutoButtonColor = false
 	close.Text = "X"
 	close.Font = Theme.Fonts.header
-	close.TextSize = 15
-	close.TextColor3 = Theme.Colors.textPrimary
+	close.TextSize = 16
+	close.TextColor3 = Color3.new(1, 1, 1)
 	close.BackgroundColor3 = Theme.Colors.danger
-	close.BackgroundTransparency = 0
-	close.Size = UDim2.fromOffset(34, 34)
-	close.Position = UDim2.new(1, -44, 0, 0)
-	close.Parent = titleRow
+	close.Size = UDim2.fromOffset(32, 32)
+	close.Position = UDim2.new(1, -40, 0, 6)
+	close.ZIndex = 12
+	close.Parent = header
+	Instance.new("UICorner", close).CornerRadius = UDim.new(1, 0)
 
-	local closeCorner = Instance.new("UICorner")
-	closeCorner.CornerRadius = UDim.new(1, 0)
-	closeCorner.Parent = close
+	local tabHost = Instance.new("Frame")
+	tabHost.BackgroundTransparency = 1
+	tabHost.Size = UDim2.new(1, -16, 0, 36)
+	tabHost.Position = UDim2.fromOffset(8, 42)
+	tabHost.ZIndex = 12
+	tabHost.Parent = header
 
-	local segmentedHost = Instance.new("Frame")
-	segmentedHost.Name = "SegmentedHost"
-	segmentedHost.BackgroundTransparency = 1
-	segmentedHost.Size = UDim2.new(1, -20, 0, 34)
-	segmentedHost.Position = UDim2.fromOffset(10, 50)
-	segmentedHost.Parent = header
+	local content = Instance.new("Frame")
+	content.Name = "ContentHost"
+	content.BackgroundTransparency = 1
+	content.ClipsDescendants = true
+	content.Size = UDim2.new(1, -12, 1, -(HEADER_H + STATUS_H + 6))
+	content.Position = UDim2.fromOffset(6, HEADER_H + 2)
+	content.ZIndex = 11
+	content.Parent = panel
+	self.contentHost = content
 
-	local contentHost = Instance.new("Frame")
-	contentHost.Name = "ContentHost"
-	contentHost.BackgroundTransparency = 1
-	contentHost.ClipsDescendants = true
-	contentHost.Size = UDim2.new(1, -16, 1, -(HEADER_HEIGHT + 4))
-	contentHost.Position = UDim2.fromOffset(8, HEADER_HEIGHT + 2)
-	contentHost.ZIndex = 1
-	contentHost.Parent = panel
-
-	self.contentHost = contentHost
+	local status = Instance.new("TextLabel")
+	status.Name = "StatusLabel"
+	status.BackgroundTransparency = 1
+	status.Font = Theme.Fonts.mono
+	status.TextSize = 11
+	status.TextColor3 = Theme.Colors.textSecondary
+	status.TextXAlignment = Enum.TextXAlignment.Left
+	status.Text = "Ready"
+	status.Size = UDim2.new(1, -16, 0, STATUS_H)
+	status.Position = UDim2.new(0, 10, 1, -STATUS_H)
+	status.ZIndex = 12
+	status.Parent = panel
+	self.statusLabel = status
 
 	close.MouseButton1Click:Connect(function()
-		self.utils.springScale(close, 0.95)
 		self:hide()
 	end)
 
-	local _, segmented = self.components.createSegmented({
-		parent = segmentedHost,
+	self.components.createSegmented({
+		parent = tabHost,
 		theme = Theme,
 		options = { "Fly", "Nav", "Arena" },
 		default = self.state.activeTab,
@@ -1608,123 +1593,86 @@ function MenuSheet:_create()
 			self:switchTab(tab)
 		end,
 	})
-	self.segmented = segmented
 
 	return panel
 end
 
-function MenuSheet:_measureContentHeight()
-	local frame = self.tabFrames[self.state.activeTab]
-	if not frame then
-		return 0
-	end
-	local layout = frame:FindFirstChildOfClass("UIListLayout")
-	if not layout then
-		return 0
-	end
-	return layout.AbsoluteContentSize.Y + 28
-end
-
 function MenuSheet:_layout()
-	local metrics = self.utils.getScreenMetrics()
-	local contentHeight = self:_measureContentHeight()
-	local panelHeight = metrics.minPanelHeight
-
-	if contentHeight > 0 then
-		panelHeight = math.clamp(HEADER_HEIGHT + contentHeight, metrics.minPanelHeight, metrics.maxPanelHeight)
+	local gui = self.screenGui
+	local size = gui.AbsoluteSize
+	if size.X < 80 or size.Y < 80 then
+		local cam = workspace.CurrentCamera
+		size = (cam and cam.ViewportSize) or Vector2.new(390, 844)
 	end
 
-	self.panel.Size = UDim2.fromOffset(metrics.width, panelHeight)
-	self.panel.Position = UDim2.fromOffset(metrics.left, metrics.topY)
+	local pad = 8
+	local top = 64
+	local width = math.max(size.X - pad * 2, 200)
+	local height = math.max(math.floor(size.Y * 0.48), 260)
+	height = math.min(height, math.floor(size.Y * 0.62))
+
+	self.panel.Position = UDim2.fromOffset(pad, top)
+	self.panel.Size = UDim2.fromOffset(width, height)
 end
 
-function MenuSheet:_bindViewport()
-	local camera = workspace.CurrentCamera
-	if not camera then
-		return
-	end
-	camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+function MenuSheet:_bindResize()
+	self.screenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 		self:_layout()
 	end)
-end
-
-function MenuSheet:_configureScroll(frame)
-	frame.BackgroundTransparency = 1
-	frame.BorderSizePixel = 0
-	frame.Size = UDim2.fromScale(1, 1)
-	frame.CanvasPosition = Vector2.zero
-	frame.ScrollingDirection = Enum.ScrollingDirection.Y
-	frame.ScrollingEnabled = true
-	frame.Active = true
-	frame.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
-	frame.ScrollBarThickness = 6
-	frame.ScrollBarImageColor3 = self.theme.Colors.accent
-	frame.ScrollBarImageTransparency = 0.15
-	frame.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
-end
-
-function MenuSheet:_updateCanvas(frame, layout)
-	frame.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 24)
 end
 
 function MenuSheet:_buildTabs()
 	for name, builder in pairs(self.modules) do
 		local frame = Instance.new("ScrollingFrame")
 		frame.Name = name .. "Tab"
-		self:_configureScroll(frame)
+		frame.BackgroundTransparency = 1
+		frame.BorderSizePixel = 0
+		frame.Size = UDim2.fromScale(1, 1)
+		frame.ScrollBarThickness = 5
+		frame.ScrollingEnabled = true
+		frame.Active = true
+		frame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		frame.CanvasSize = UDim2.new()
 		frame.Visible = name == self.state.activeTab
+		frame.ZIndex = 11
 		frame.Parent = self.contentHost
 
 		local layout = Instance.new("UIListLayout")
 		layout.Padding = UDim.new(0, 8)
 		layout.SortOrder = Enum.SortOrder.LayoutOrder
-		layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-		layout.VerticalAlignment = Enum.VerticalAlignment.Top
 		layout.Parent = frame
 
 		local padding = Instance.new("UIPadding")
 		padding.PaddingTop = UDim.new(0, 4)
 		padding.PaddingBottom = UDim.new(0, 16)
 		padding.PaddingLeft = UDim.new(0, 4)
-		padding.PaddingRight = UDim.new(0, 4)
+		padding.PaddingRight = UDim.new(0, 8)
 		padding.Parent = frame
 
 		builder(frame)
 		self.tabFrames[name] = frame
-
-		self:_updateCanvas(frame, layout)
-		layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-			self:_updateCanvas(frame, layout)
-			if self.state.menuOpen then
-				self:_layout()
-			end
-		end)
 	end
 end
 
 function MenuSheet:switchTab(tab)
-	if self.state.activeTab == tab then
+	if self.state.activeTab == tab and self.tabFrames[tab] and self.tabFrames[tab].Visible then
 		return
 	end
-	local previous = self.tabFrames[self.state.activeTab]
-	local nextFrame = self.tabFrames[tab]
 	self.state.activeTab = tab
-	if previous then
-		previous.Visible = false
+	for name, frame in pairs(self.tabFrames) do
+		frame.Visible = name == tab
+		if name == tab then
+			frame.CanvasPosition = Vector2.zero
+		end
 	end
-	if nextFrame then
-		nextFrame.Visible = true
-		nextFrame.CanvasPosition = Vector2.zero
-	end
-	self:_layout()
-	self:setStatus("Tab: " .. tab)
+	self:updateStatus("Tab: " .. tab)
 end
 
 function MenuSheet:show()
 	self:_layout()
 	self.panel.Visible = true
 	self.state.menuOpen = true
-	self:setStatus("Menu open")
+	self:updateStatus("Menu open")
 end
 
 function MenuSheet:hide()
@@ -1736,7 +1684,7 @@ function MenuSheet:hide()
 end
 
 function MenuSheet:toggle()
-	if self.state.menuOpen then
+	if self.panel.Visible then
 		self:hide()
 	else
 		self:show()
@@ -1745,13 +1693,9 @@ end
 
 function MenuSheet:updateStatus(text)
 	self.state.statusText = text
-	if self.setStatusFn then
-		self.setStatusFn(text)
+	if self.statusLabel then
+		self.statusLabel.Text = text
 	end
-end
-
-function MenuSheet:setStatus(text)
-	self:updateStatus(text)
 end
 
 function MenuSheet:setVisible(visible)
@@ -2899,10 +2843,10 @@ local function bootstrap(loadModule)
 	local gameContext = GameContext.new(Config, Utils)
 
 	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "DeltaOverlay_v150"
+	screenGui.Name = "DeltaOverlay_v160"
 	screenGui.ResetOnSpawn = false
 	screenGui.IgnoreGuiInset = true
-	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.DisplayOrder = 999999
 	screenGui.Enabled = true
 	screenGui.Parent = Platform.getGuiParent(LocalPlayer)
@@ -2919,8 +2863,8 @@ local function bootstrap(loadModule)
 
 	function overlay.setStatus(text)
 		State.statusText = text
-		if overlay.menu then
-			overlay.menu:updateStatus(text)
+		if overlay.menu and overlay.menu.statusLabel then
+			overlay.menu.statusLabel.Text = text
 		end
 	end
 
@@ -3000,7 +2944,7 @@ local function bootstrap(loadModule)
 		screenGui = screenGui,
 		onToggle = function()
 			overlay.menu:toggle()
-			overlay.button:setActive(State.menuOpen)
+			overlay.button:setActive(overlay.menu.panel.Visible)
 		end,
 		onMove = function(button)
 			if overlay.speedHud then
