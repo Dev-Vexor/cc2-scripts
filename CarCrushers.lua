@@ -91,7 +91,7 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.3.0"
+Config.VERSION = "1.3.1"
 
 Config.PLACE_IDS = {
 	CC2 = 654732683,
@@ -247,6 +247,65 @@ function Utils.getGuiInset()
 		inset = game:GetService("GuiService"):GetGuiInset()
 	end)
 	return inset
+end
+
+-- Roblox mobile UI zones (xMin, xMax, yMin, yMax) in screen scale
+Utils.ROBLOX_UI_ZONES = {
+	{ 0.58, 1.01, 0.0, 0.22 }, -- top-right: menu, chat
+	{ 0.52, 1.01, 0.58, 1.01 }, -- bottom-right: jump
+	{ 0.0, 0.30, 0.62, 1.01 }, -- bottom-left: move stick
+}
+
+function Utils.isMobile()
+	return game:GetService("UserInputService").TouchEnabled
+end
+
+function Utils.getDefaultButtonPosition()
+	if Utils.isMobile() then
+		return { x = 0.12, y = 0.46 }
+	end
+	return { x = 0.94, y = 0.5 }
+end
+
+function Utils.isRobloxUiZone(x, y)
+	for _, zone in ipairs(Utils.ROBLOX_UI_ZONES) do
+		if x >= zone[1] and x <= zone[2] and y >= zone[3] and y <= zone[4] then
+			return true
+		end
+	end
+	return false
+end
+
+function Utils.sanitizeButtonPosition(point)
+	local defaultPos = Utils.getDefaultButtonPosition()
+	if typeof(point) ~= "table" or typeof(point.x) ~= "number" or typeof(point.y) ~= "number" then
+		return defaultPos
+	end
+	if Utils.isRobloxUiZone(point.x, point.y) then
+		return defaultPos
+	end
+	return point
+end
+
+function Utils.clampButtonPosition(x, y, radiusPx)
+	local inset = Utils.getGuiInset()
+	local viewport = workspace.CurrentCamera.ViewportSize
+	local padX = (inset.X + radiusPx) / viewport.X
+	local padY = (inset.Y + radiusPx) / viewport.Y
+
+	local minX = math.max(padX, 0.07)
+	local maxX = 1 - math.max(padX, 0.07)
+	local minY = math.max(padY, 0.12)
+	local maxY = 1 - math.max(padY, 0.14)
+
+	x = Utils.clamp(x, minX, maxX)
+	y = Utils.clamp(y, minY, maxY)
+
+	if Utils.isRobloxUiZone(x, y) then
+		return Utils.getDefaultButtonPosition().x, Utils.getDefaultButtonPosition().y
+	end
+
+	return x, y
 end
 
 function Utils.distanceBetween(a, b)
@@ -924,6 +983,8 @@ return Components
 local FloatingButton = {}
 FloatingButton.__index = FloatingButton
 
+local SAVE_KEY = "buttonPositionV2"
+
 function FloatingButton.new(deps)
 	local self = setmetatable({}, FloatingButton)
 	self.theme = deps.theme
@@ -936,10 +997,6 @@ function FloatingButton.new(deps)
 
 	self.button = self:_create()
 	return self
-end
-
-function FloatingButton:_defaultPosition()
-	return { x = 0.93, y = 0.5 }
 end
 
 function FloatingButton:_applyScalePosition(point)
@@ -961,7 +1018,7 @@ function FloatingButton:_create()
 	button.BackgroundColor3 = Theme.Colors.buttonGlass
 	button.BackgroundTransparency = Theme.Transparency.idleButton
 	button.Size = UDim2.fromOffset(size, size)
-	button.ZIndex = 22
+	button.ZIndex = 999999
 	button.Active = true
 	button.Selectable = false
 	button.Parent = self.screenGui
@@ -976,10 +1033,8 @@ function FloatingButton:_create()
 	stroke.Transparency = 0.15
 	stroke.Parent = button
 
-	local saved = self.utils.getSavedPoint("buttonPosition", self:_defaultPosition())
-	if typeof(saved) == "UDim2" then
-		saved = self:_defaultPosition()
-	end
+	local saved = self.utils.getSavedPoint(SAVE_KEY, self.utils.getDefaultButtonPosition())
+	saved = self.utils.sanitizeButtonPosition(saved)
 	self:_applyScalePosition(saved)
 	self:_notifyMove()
 
@@ -1002,23 +1057,11 @@ function FloatingButton:_bindDrag(button)
 	local dragStart
 	local startPoint
 
-	local function sizePad(btn)
-		return btn.AbsoluteSize.X * 0.5
-	end
-
-	local function clampPoint(x, y)
-		local inset = self.utils.getGuiInset()
-		local viewport = workspace.CurrentCamera.ViewportSize
-		local padX = (inset.X + sizePad(button)) / viewport.X
-		local padY = (inset.Y + sizePad(button)) / viewport.Y
-		return self.utils.clamp(x, padX, 1 - padX), self.utils.clamp(y, padY, 1 - padY)
-	end
-
 	local function finish()
 		if activeInput then
 			if dragging then
 				local x, y = button.Position.X.Scale, button.Position.Y.Scale
-				self.utils.savePoint("buttonPosition", { x = x, y = y })
+				self.utils.savePoint(SAVE_KEY, { x = x, y = y })
 				self:_notifyMove()
 			end
 			activeInput = nil
@@ -1060,7 +1103,7 @@ function FloatingButton:_bindDrag(button)
 		if dragging then
 			local cx = startPoint.x + delta.X / viewport.X
 			local cy = startPoint.y + delta.Y / viewport.Y
-			cx, cy = clampPoint(cx, cy)
+			cx, cy = self.utils.clampButtonPosition(cx, cy, button.AbsoluteSize.X * 0.5)
 			button.Position = UDim2.new(cx, 0, cy, 0)
 			self:_notifyMove()
 		end
@@ -1202,12 +1245,13 @@ function FlySpeedHud:followButton(button)
 	if not button then
 		return
 	end
-	self.root.AnchorPoint = Vector2.new(1, 1)
+	self.root.AnchorPoint = Vector2.new(0.5, 1)
+	self.root.ZIndex = 999998
 	self.root.Position = UDim2.new(
 		button.Position.X.Scale,
-		button.Position.X.Offset - 6,
+		button.Position.X.Offset,
 		button.Position.Y.Scale,
-		button.Position.Y.Offset - (button.AbsoluteSize.Y * 0.5) - 6
+		button.Position.Y.Offset - (button.AbsoluteSize.Y * 0.5) - 8
 	)
 end
 
@@ -2663,7 +2707,7 @@ local function bootstrap(loadModule)
 	screenGui.ResetOnSpawn = false
 	screenGui.IgnoreGuiInset = true
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	screenGui.DisplayOrder = 9999
+	screenGui.DisplayOrder = 999999
 	screenGui.Enabled = true
 	screenGui.Parent = Platform.getGuiParent(LocalPlayer)
 
