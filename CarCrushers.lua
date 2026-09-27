@@ -1,5 +1,5 @@
 -- Delta Overlay for Car Crushers 2 (Delta iOS)
--- Load: loadstring(game:HttpGet("https://raw.githubusercontent.com/saucekid/scripts/main/CarCrushers.lua"))()
+-- Load: loadstring(game:HttpGet("https://raw.githubusercontent.com/Dev-Vexor/cc2-scripts/main/CarCrushers.lua"))()
 
 -- Delta Overlay bundled build (generated)
 -- Host this file and load with loader.lua / HttpGet
@@ -91,7 +91,7 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.2.0"
+Config.VERSION = "1.3.0"
 
 Config.PLACE_IDS = {
 	CC2 = 654732683,
@@ -148,6 +148,7 @@ Theme.Colors = {
 	textSecondary = Color3.fromRGB(142, 142, 147),
 	success = Color3.fromRGB(52, 199, 89),
 	danger = Color3.fromRGB(255, 69, 58),
+	buttonGlass = Color3.fromRGB(22, 22, 24),
 }
 
 Theme.Fonts = {
@@ -157,22 +158,24 @@ Theme.Fonts = {
 }
 
 Theme.Sizes = {
-	header = 17,
-	body = 15,
-	mono = 14,
-	minTouch = 44,
-	floatingButton = 60,
-	cornerSheet = 24,
-	cornerButton = 12,
-	avatar = 36,
-	grabberWidth = 36,
-	grabberHeight = 5,
+	header = 15,
+	body = 13,
+	mono = 12,
+	minTouch = 36,
+	floatingButton = 46,
+	cornerSheet = 18,
+	cornerButton = 10,
+	avatar = 32,
+	grabberWidth = 32,
+	grabberHeight = 4,
+	sheetHeight = 0.52,
+	contentPadding = 10,
 }
 
 Theme.Transparency = {
-	idleButton = 0.3, -- opacity 0.7
+	idleButton = 0.12,
 	activeButton = 0,
-	sheetMaterial = 0.15,
+	sheetMaterial = 0.08,
 }
 
 return Theme
@@ -351,8 +354,8 @@ end
 
 function Animation.sheetPresent(frame, onComplete)
 	local TweenService = game:GetService("TweenService")
-	local target = UDim2.new(0, 0, 1, 0)
-	local hidden = UDim2.new(0, 0, 1.05, 0)
+	local target = UDim2.new(0.5, 0, 1, 0)
+	local hidden = UDim2.new(0.5, 0, 1.05, 0)
 	frame.Position = hidden
 	frame.Visible = true
 	local tween = TweenService:Create(
@@ -369,7 +372,7 @@ end
 
 function Animation.sheetDismiss(frame, onComplete)
 	local TweenService = game:GetService("TweenService")
-	local hidden = UDim2.new(0, 0, 1.05, 0)
+	local hidden = UDim2.new(0.5, 0, 1.05, 0)
 	local tween = TweenService:Create(
 		frame,
 		TweenInfo.new(0.25, Enum.EasingStyle.Cubic, Enum.EasingDirection.In),
@@ -559,7 +562,7 @@ function Components.createSlider(props)
 	local Utils = props.utils
 	local container = Instance.new("Frame")
 	container.BackgroundTransparency = 1
-	container.Size = UDim2.new(1, 0, 0, 72)
+	container.Size = UDim2.new(1, 0, 0, 58)
 	container.Parent = props.parent
 
 	Components.createLabel({
@@ -927,11 +930,21 @@ function FloatingButton.new(deps)
 	self.utils = deps.utils
 	self.haptic = deps.haptic
 	self.onToggle = deps.onToggle
+	self.onMove = deps.onMove
 	self.screenGui = deps.screenGui
 	self.state = deps.state
 
 	self.button = self:_create()
 	return self
+end
+
+function FloatingButton:_defaultPosition()
+	return { x = 0.93, y = 0.5 }
+end
+
+function FloatingButton:_applyScalePosition(point)
+	self.button.AnchorPoint = Vector2.new(0.5, 0.5)
+	self.button.Position = UDim2.new(point.x, 0, point.y, 0)
 end
 
 function FloatingButton:_create()
@@ -941,15 +954,14 @@ function FloatingButton:_create()
 	local button = Instance.new("TextButton")
 	button.Name = "FloatingButton"
 	button.AutoButtonColor = false
-	button.Text = "☰"
+	button.Text = "CC"
 	button.Font = Theme.Fonts.header
-	button.TextSize = 22
+	button.TextSize = 14
 	button.TextColor3 = Theme.Colors.textPrimary
-	button.BackgroundColor3 = Theme.Colors.accent
+	button.BackgroundColor3 = Theme.Colors.buttonGlass
 	button.BackgroundTransparency = Theme.Transparency.idleButton
 	button.Size = UDim2.fromOffset(size, size)
-	button.AnchorPoint = Vector2.new(1, 0.5)
-	button.ZIndex = 20
+	button.ZIndex = 22
 	button.Active = true
 	button.Selectable = false
 	button.Parent = self.screenGui
@@ -958,12 +970,28 @@ function FloatingButton:_create()
 	corner.CornerRadius = UDim.new(1, 0)
 	corner.Parent = button
 
-	local saved = self.utils.getSavedPoint("buttonPosition", UDim2.new(1, -20, 0.5, 0))
-	button.Position = saved
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Theme.Colors.accent
+	stroke.Thickness = 2
+	stroke.Transparency = 0.15
+	stroke.Parent = button
+
+	local saved = self.utils.getSavedPoint("buttonPosition", self:_defaultPosition())
+	if typeof(saved) == "UDim2" then
+		saved = self:_defaultPosition()
+	end
+	self:_applyScalePosition(saved)
+	self:_notifyMove()
 
 	self:_bindDrag(button)
 
 	return button
+end
+
+function FloatingButton:_notifyMove()
+	if self.onMove then
+		self.onMove(self.button)
+	end
 end
 
 function FloatingButton:_bindDrag(button)
@@ -972,12 +1000,26 @@ function FloatingButton:_bindDrag(button)
 	local didDrag = false
 	local activeInput
 	local dragStart
-	local startPos
+	local startPoint
+
+	local function sizePad(btn)
+		return btn.AbsoluteSize.X * 0.5
+	end
+
+	local function clampPoint(x, y)
+		local inset = self.utils.getGuiInset()
+		local viewport = workspace.CurrentCamera.ViewportSize
+		local padX = (inset.X + sizePad(button)) / viewport.X
+		local padY = (inset.Y + sizePad(button)) / viewport.Y
+		return self.utils.clamp(x, padX, 1 - padX), self.utils.clamp(y, padY, 1 - padY)
+	end
 
 	local function finish()
 		if activeInput then
 			if dragging then
-				self.utils.savePoint("buttonPosition", button.Position)
+				local x, y = button.Position.X.Scale, button.Position.Y.Scale
+				self.utils.savePoint("buttonPosition", { x = x, y = y })
+				self:_notifyMove()
 			end
 			activeInput = nil
 			dragStart = nil
@@ -994,7 +1036,7 @@ function FloatingButton:_bindDrag(button)
 			dragging = false
 			didDrag = false
 			dragStart = input.Position
-			startPos = button.Position
+			startPoint = { x = button.Position.X.Scale, y = button.Position.Y.Scale }
 		end
 	end)
 
@@ -1009,19 +1051,18 @@ function FloatingButton:_bindDrag(button)
 			return
 		end
 
+		local viewport = workspace.CurrentCamera.ViewportSize
 		local delta = input.Position - dragStart
-		if delta.Magnitude > 10 then
+		if delta.Magnitude > 8 then
 			dragging = true
 			didDrag = true
 		end
 		if dragging then
-			local viewport = workspace.CurrentCamera.ViewportSize
-			local inset = self.utils.getGuiInset()
-			local x = startPos.X.Offset + delta.X
-			local y = startPos.Y.Offset + delta.Y
-			x = self.utils.clamp(x, inset.X + 30, viewport.X - inset.X - 30)
-			y = self.utils.clamp(y, inset.Y + 30, viewport.Y - inset.Y - 30)
-			button.Position = UDim2.new(startPos.X.Scale, x, startPos.Y.Scale, y)
+			local cx = startPoint.x + delta.X / viewport.X
+			local cy = startPoint.y + delta.Y / viewport.Y
+			cx, cy = clampPoint(cx, cy)
+			button.Position = UDim2.new(cx, 0, cy, 0)
+			self:_notifyMove()
 		end
 	end)
 
@@ -1048,6 +1089,10 @@ end
 function FloatingButton:setActive(active)
 	self.button.BackgroundTransparency = active and self.theme.Transparency.activeButton
 		or self.theme.Transparency.idleButton
+	local stroke = self.button:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Color = active and self.theme.Colors.success or self.theme.Colors.accent
+	end
 end
 
 function FloatingButton:setVisible(visible)
@@ -1055,6 +1100,126 @@ function FloatingButton:setVisible(visible)
 end
 
 return FloatingButton
+]=],
+	["src/FlySpeedHud.lua"] = [=[
+local FlySpeedHud = {}
+FlySpeedHud.__index = FlySpeedHud
+
+function FlySpeedHud.new(deps)
+	local self = setmetatable({}, FlySpeedHud)
+	self.theme = deps.theme
+	self.utils = deps.utils
+	self.state = deps.state
+	self.flyService = deps.flyService
+	self.screenGui = deps.screenGui
+	self.setStatus = deps.setStatus
+	self.root = self:_create()
+	self:sync()
+	return self
+end
+
+function FlySpeedHud:_create()
+	local Theme = self.theme
+	local root = Instance.new("Frame")
+	root.Name = "FlySpeedHud"
+	root.BackgroundColor3 = Theme.Colors.bgSecondary
+	root.BackgroundTransparency = 0.08
+	root.Size = UDim2.fromOffset(132, 34)
+	root.AnchorPoint = Vector2.new(1, 0.5)
+	root.Position = UDim2.new(0.88, 0, 0.42, 0)
+	root.Visible = false
+	root.ZIndex = 21
+	root.Parent = self.screenGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = root
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Theme.Colors.textSecondary
+	stroke.Transparency = 0.65
+	stroke.Thickness = 1
+	stroke.Parent = root
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = root
+
+	local function makeBtn(text, width)
+		local btn = Instance.new("TextButton")
+		btn.AutoButtonColor = false
+		btn.Text = text
+		btn.Font = Theme.Fonts.header
+		btn.TextSize = 16
+		btn.TextColor3 = Theme.Colors.textPrimary
+		btn.BackgroundColor3 = Theme.Colors.buttonGlass
+		btn.BackgroundTransparency = 0.2
+		btn.Size = UDim2.fromOffset(width, 26)
+		btn.Parent = root
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 8)
+		c.Parent = btn
+		return btn
+	end
+
+	self.minusBtn = makeBtn("−", 28)
+	self.valueLabel = Instance.new("TextLabel")
+	self.valueLabel.BackgroundTransparency = 1
+	self.valueLabel.Font = Theme.Fonts.mono
+	self.valueLabel.TextSize = Theme.Sizes.mono
+	self.valueLabel.TextColor3 = Theme.Colors.textPrimary
+	self.valueLabel.Size = UDim2.fromOffset(40, 26)
+	self.valueLabel.Parent = root
+	self.plusBtn = makeBtn("+", 28)
+
+	local function bump(delta)
+		local nextSpeed = self.utils.clamp(self.state.flySpeed + delta, 16, 200)
+		self.flyService:setSpeed(nextSpeed)
+		self.state.flySpeed = nextSpeed
+		self:sync()
+		self.setStatus(string.format("Speed: %d", nextSpeed))
+	end
+
+	self.minusBtn.MouseButton1Click:Connect(function()
+		bump(-10)
+	end)
+	self.plusBtn.MouseButton1Click:Connect(function()
+		bump(10)
+	end)
+
+	return root
+end
+
+function FlySpeedHud:sync()
+	self.valueLabel.Text = tostring(math.floor(self.state.flySpeed + 0.5))
+	self.root.Visible = self.state.flyEnabled
+end
+
+function FlySpeedHud:followButton(button)
+	if not button then
+		return
+	end
+	self.root.AnchorPoint = Vector2.new(1, 1)
+	self.root.Position = UDim2.new(
+		button.Position.X.Scale,
+		button.Position.X.Offset - 6,
+		button.Position.Y.Scale,
+		button.Position.Y.Offset - (button.AbsoluteSize.Y * 0.5) - 6
+	)
+end
+
+function FlySpeedHud:setVisible(visible)
+	if not self.state.flyEnabled then
+		self.root.Visible = false
+		return
+	end
+	self.root.Visible = visible
+end
+
+return FlySpeedHud
 ]=],
 	["src/MenuSheet.lua"] = [=[
 local MenuSheet = {}
@@ -1071,6 +1236,7 @@ function MenuSheet.new(deps)
 	self.modules = deps.modules
 	self.onClose = deps.onClose
 	self.setStatus = deps.setStatus
+	self.dismissThreshold = 200
 
 	self.root = self:_create()
 	self.tabFrames = {}
@@ -1081,23 +1247,23 @@ end
 function MenuSheet:_create()
 	local Theme = self.theme
 	local inset = self.utils.getGuiInset()
+	local sheetHeight = Theme.Sizes.sheetHeight or 0.52
 
-	local backdrop = Instance.new("TextButton")
+	local backdrop = Instance.new("Frame")
 	backdrop.Name = "SheetBackdrop"
-	backdrop.AutoButtonColor = false
-	backdrop.Text = ""
 	backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
-	backdrop.BackgroundTransparency = 0.45
+	backdrop.BackgroundTransparency = 0.55
 	backdrop.Size = UDim2.fromScale(1, 1)
 	backdrop.Visible = false
 	backdrop.ZIndex = 10
+	backdrop.Active = false
 	backdrop.Parent = self.screenGui
 
 	local sheet = Instance.new("Frame")
 	sheet.Name = "MenuSheet"
-	sheet.AnchorPoint = Vector2.new(0, 1)
-	sheet.Position = UDim2.new(0, 0, 1.05, 0)
-	sheet.Size = UDim2.new(1, 0, 0.8, -inset.Y)
+	sheet.AnchorPoint = Vector2.new(0.5, 1)
+	sheet.Position = UDim2.new(0.5, 0, 1.05, 0)
+	sheet.Size = UDim2.new(1, -16, sheetHeight, -inset.Y)
 	sheet.BackgroundColor3 = Theme.Colors.bgPrimary
 	sheet.BackgroundTransparency = Theme.Transparency.sheetMaterial
 	sheet.Visible = false
@@ -1109,13 +1275,20 @@ function MenuSheet:_create()
 	topCorner.CornerRadius = UDim.new(0, Theme.Sizes.cornerSheet)
 	topCorner.Parent = sheet
 
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Theme.Colors.textSecondary
+	stroke.Transparency = 0.7
+	stroke.Thickness = 1
+	stroke.Parent = sheet
+
 	local grabber = Instance.new("Frame")
 	grabber.Name = "Grabber"
 	grabber.AnchorPoint = Vector2.new(0.5, 0)
-	grabber.Position = UDim2.new(0.5, 0, 0, 8)
+	grabber.Position = UDim2.new(0.5, 0, 0, 6)
 	grabber.Size = UDim2.fromOffset(Theme.Sizes.grabberWidth, Theme.Sizes.grabberHeight)
 	grabber.BackgroundColor3 = Theme.Colors.textSecondary
 	grabber.BackgroundTransparency = 0.35
+	grabber.Active = true
 	grabber.Parent = sheet
 
 	local grabberCorner = Instance.new("UICorner")
@@ -1125,8 +1298,8 @@ function MenuSheet:_create()
 	local header = Instance.new("Frame")
 	header.Name = "Header"
 	header.BackgroundTransparency = 1
-	header.Size = UDim2.new(1, 0, 0, 52)
-	header.Position = UDim2.fromOffset(0, 20)
+	header.Size = UDim2.new(1, 0, 0, 38)
+	header.Position = UDim2.fromOffset(0, 16)
 	header.Parent = sheet
 
 	local title = Instance.new("TextLabel")
@@ -1134,9 +1307,9 @@ function MenuSheet:_create()
 	title.Font = Theme.Fonts.header
 	title.TextSize = Theme.Sizes.header
 	title.TextColor3 = Theme.Colors.textPrimary
-	title.Text = "Delta Overlay"
-	title.Size = UDim2.new(1, -96, 1, 0)
-	title.Position = UDim2.fromOffset(20, 0)
+	title.Text = "CC2"
+	title.Size = UDim2.new(1, -88, 1, 0)
+	title.Position = UDim2.fromOffset(12, 0)
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.Parent = header
 
@@ -1145,41 +1318,42 @@ function MenuSheet:_create()
 	close.AutoButtonColor = false
 	close.Text = "✕"
 	close.Font = Theme.Fonts.header
-	close.TextSize = 18
+	close.TextSize = 16
 	close.TextColor3 = Theme.Colors.textSecondary
-	close.BackgroundTransparency = 1
-	close.Size = UDim2.fromOffset(44, 44)
-	close.Position = UDim2.new(1, -52, 0.5, 0)
+	close.BackgroundColor3 = Theme.Colors.bgSecondary
+	close.BackgroundTransparency = 0.35
+	close.Size = UDim2.fromOffset(32, 32)
+	close.Position = UDim2.new(1, -40, 0.5, 0)
 	close.AnchorPoint = Vector2.new(0, 0.5)
 	close.Parent = header
+
+	local closeCorner = Instance.new("UICorner")
+	closeCorner.CornerRadius = UDim.new(1, 0)
+	closeCorner.Parent = close
 
 	local segmentedHost = Instance.new("Frame")
 	segmentedHost.Name = "SegmentedHost"
 	segmentedHost.BackgroundTransparency = 1
-	segmentedHost.Size = UDim2.new(1, -32, 0, Theme.Sizes.minTouch)
-	segmentedHost.Position = UDim2.fromOffset(16, 72)
+	segmentedHost.Size = UDim2.new(1, -20, 0, 34)
+	segmentedHost.Position = UDim2.fromOffset(10, 54)
 	segmentedHost.Parent = sheet
 
 	local contentHost = Instance.new("Frame")
 	contentHost.Name = "ContentHost"
 	contentHost.BackgroundTransparency = 1
-	contentHost.Size = UDim2.new(1, -32, 1, -180)
-	contentHost.Position = UDim2.fromOffset(16, 128)
+	contentHost.Size = UDim2.new(1, -20, 1, -118)
+	contentHost.Position = UDim2.fromOffset(10, 92)
 	contentHost.ClipsDescendants = true
 	contentHost.Parent = sheet
 
 	local footer = Instance.new("Frame")
 	footer.Name = "Footer"
 	footer.BackgroundColor3 = Theme.Colors.bgSecondary
-	footer.BackgroundTransparency = 0.2
-	footer.Size = UDim2.new(1, 0, 0, 44)
+	footer.BackgroundTransparency = 0.25
+	footer.Size = UDim2.new(1, 0, 0, 28)
 	footer.AnchorPoint = Vector2.new(0, 1)
 	footer.Position = UDim2.new(0, 0, 1, 0)
 	footer.Parent = sheet
-
-	local footerCorner = Instance.new("UICorner")
-	footerCorner.CornerRadius = UDim.new(0, Theme.Sizes.cornerSheet)
-	footerCorner.Parent = footer
 
 	local statusLabel = Instance.new("TextLabel")
 	statusLabel.Name = "StatusLabel"
@@ -1189,8 +1363,8 @@ function MenuSheet:_create()
 	statusLabel.TextColor3 = Theme.Colors.textSecondary
 	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 	statusLabel.Text = self.state.statusText
-	statusLabel.Size = UDim2.new(1, -24, 1, 0)
-	statusLabel.Position = UDim2.fromOffset(16, 0)
+	statusLabel.Size = UDim2.new(1, -16, 1, 0)
+	statusLabel.Position = UDim2.fromOffset(10, 0)
 	statusLabel.Parent = footer
 
 	self.backdrop = backdrop
@@ -1200,10 +1374,6 @@ function MenuSheet:_create()
 
 	close.MouseButton1Click:Connect(function()
 		self.utils.springScale(close, 0.95)
-		self:hide()
-	end)
-
-	backdrop.MouseButton1Click:Connect(function()
 		self:hide()
 	end)
 
@@ -1225,60 +1395,64 @@ end
 
 function MenuSheet:_bindDragDismiss(sheet, handle)
 	local UserInputService = game:GetService("UserInputService")
+	local activeInput
 	local dragStart
 	local startY
+	local dragging = false
 
-	local function track(input)
+	handle.InputBegan:Connect(function(input)
 		if
 			input.UserInputType == Enum.UserInputType.Touch
 			or input.UserInputType == Enum.UserInputType.MouseButton1
 		then
+			activeInput = input
 			dragStart = input.Position
 			startY = sheet.Position.Y.Offset
-		end
-	end
-
-	handle.InputBegan:Connect(track)
-	sheet.InputBegan:Connect(function(input)
-		if input.Position.Y - sheet.AbsolutePosition.Y < 72 then
-			track(input)
+			dragging = false
 		end
 	end)
 
 	UserInputService.InputChanged:Connect(function(input)
-		if
-			dragStart
-			and (
-				input.UserInputType == Enum.UserInputType.Touch
-				or input.UserInputType == Enum.UserInputType.MouseMovement
-			)
-		then
-			local delta = input.Position.Y - dragStart.Y
-			if delta > 0 then
-				sheet.Position = UDim2.new(0, 0, 1, startY + delta)
-			end
+		if not activeInput or input ~= activeInput then
+			return
 		end
-	end)
-
-	local function finish(input)
 		if
-			not dragStart
-			or not (
-				input.UserInputType == Enum.UserInputType.Touch
-				or input.UserInputType == Enum.UserInputType.MouseButton1
-			)
+			input.UserInputType ~= Enum.UserInputType.Touch
+			and input.UserInputType ~= Enum.UserInputType.MouseMovement
 		then
 			return
 		end
 		local delta = input.Position.Y - dragStart.Y
-		dragStart = nil
-		if delta > 120 then
+		if delta > 12 then
+			dragging = true
+		end
+		if dragging and delta > 0 then
+			sheet.Position = UDim2.new(0.5, 0, 1, startY + delta)
+		end
+	end)
+
+	local function finish(input)
+		if not activeInput or input ~= activeInput then
+			return
+		end
+		if
+			input.UserInputType ~= Enum.UserInputType.Touch
+			and input.UserInputType ~= Enum.UserInputType.MouseButton1
+		then
+			return
+		end
+		local delta = input.Position.Y - dragStart.Y
+		activeInput = nil
+		if dragging and delta > self.dismissThreshold then
 			self:hide()
 		else
 			self.animation.sheetPresent(sheet)
 		end
+		dragging = false
+		dragStart = nil
 	end
 
+	handle.InputEnded:Connect(finish)
 	UserInputService.InputEnded:Connect(finish)
 end
 
@@ -1290,23 +1464,23 @@ function MenuSheet:_buildTabs()
 		frame.BorderSizePixel = 0
 		frame.Size = UDim2.fromScale(1, 1)
 		frame.CanvasSize = UDim2.new()
-		frame.ScrollBarThickness = 4
+		frame.ScrollBarThickness = 3
 		frame.ScrollBarImageColor3 = self.theme.Colors.textSecondary
 		frame.Visible = name == self.state.activeTab
 		frame:SetAttribute("TargetTransparency", 1)
 		frame.Parent = self.contentHost
 
 		local layout = Instance.new("UIListLayout")
-		layout.Padding = UDim.new(0, 12)
+		layout.Padding = UDim.new(0, 8)
 		layout.SortOrder = Enum.SortOrder.LayoutOrder
 		layout.Parent = frame
 
 		local padding = Instance.new("UIPadding")
-		padding.PaddingBottom = UDim.new(0, 16)
+		padding.PaddingBottom = UDim.new(0, 8)
 		padding.Parent = frame
 
 		layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-			frame.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 16)
+			frame.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 8)
 		end)
 
 		builder(frame)
@@ -1335,7 +1509,6 @@ function MenuSheet:show()
 	self.sheet.Visible = true
 	self.animation.sheetPresent(self.sheet)
 	self.state.menuOpen = true
-	self:setStatus("Menu open")
 end
 
 function MenuSheet:hide()
@@ -1346,7 +1519,6 @@ function MenuSheet:hide()
 	if self.onClose then
 		self.onClose()
 	end
-	self:setStatus("Ready")
 end
 
 function MenuSheet:toggle()
@@ -1363,8 +1535,11 @@ function MenuSheet:updateStatus(text)
 end
 
 function MenuSheet:setVisible(visible)
-	self.sheet.Visible = visible
-	self.backdrop.Visible = visible and self.state.menuOpen
+	if visible then
+		self:show()
+	else
+		self:hide()
+	end
 end
 
 return MenuSheet
@@ -2031,42 +2206,24 @@ local function buildFlyModule(deps)
 	local Utils = deps.utils
 	local State = deps.state
 	local FlyService = deps.flyService
-	local Platform = deps.platform
 	local setStatus = deps.setStatus
+	local onSpeedHudSync = deps.onSpeedHudSync
 
 	return function(parent)
-		Components.createLabel({
-			parent = parent,
-			text = "Flight",
-			font = Theme.Fonts.header,
-			size = Theme.Sizes.header,
-			color = Theme.Colors.textPrimary,
-			sizeDim = UDim2.new(1, 0, 0, 24),
-			auto = Enum.AutomaticSize.None,
-		})
-
-		Components.createLabel({
-			parent = parent,
-			text = Platform.isMobile() and "Сядь в машину → включи Fly → крути камеру"
-				or "Sit in vehicle seat, enable fly, steer with camera",
-			font = Theme.Fonts.body,
-			size = 13,
-			color = Theme.Colors.textSecondary,
-			sizeDim = UDim2.new(1, 0, 0, 32),
-			auto = Enum.AutomaticSize.Y,
-		})
-
 		Components.createSwitch({
 			parent = parent,
 			theme = Theme,
-			label = "Master Switch",
+			label = "Fly",
 			default = State.flyEnabled,
 			onChange = function(value)
 				FlyService:setEnabled(value)
+				if onSpeedHudSync then
+					onSpeedHudSync()
+				end
 				if value then
-					setStatus(string.format("Fly: %s mode", FlyService:getMode()))
+					setStatus(string.format("Fly %s • %d", FlyService:getMode(), State.flySpeed))
 				else
-					setStatus("Fly disabled")
+					setStatus("Fly off")
 				end
 			end,
 		})
@@ -2074,11 +2231,10 @@ local function buildFlyModule(deps)
 		Components.createSwitch({
 			parent = parent,
 			theme = Theme,
-			label = "Auto Drive (mobile)",
+			label = "Auto drive",
 			default = State.autoDrive,
 			onChange = function(value)
 				FlyService:setAutoDrive(value)
-				setStatus(value and "Auto drive ON" or "Auto drive OFF")
 			end,
 		})
 
@@ -2086,128 +2242,68 @@ local function buildFlyModule(deps)
 			parent = parent,
 			theme = Theme,
 			utils = Utils,
-			label = "Velocity",
+			label = "Speed",
 			min = 16,
 			max = 200,
 			default = State.flySpeed,
 			onChange = function(value)
 				FlyService:setSpeed(value)
-				setStatus(string.format("Speed: %d pt/s", math.floor(value)))
+				State.flySpeed = value
+				if onSpeedHudSync then
+					onSpeedHudSync()
+				end
+				setStatus(string.format("Speed %d", math.floor(value)))
 			end,
-		})
-
-		Components.createLabel({
-			parent = parent,
-			text = "Vertical Control",
-			font = Theme.Fonts.body,
-			size = Theme.Sizes.body,
-			color = Theme.Colors.textSecondary,
-			sizeDim = UDim2.new(1, 0, 0, 20),
-			auto = Enum.AutomaticSize.None,
 		})
 
 		local verticalRow = Instance.new("Frame")
 		verticalRow.BackgroundTransparency = 1
-		verticalRow.Size = UDim2.new(1, 0, 0, Theme.Sizes.minTouch)
+		verticalRow.Size = UDim2.new(1, 0, 0, 34)
 		verticalRow.Parent = parent
 
 		local verticalLayout = Instance.new("UIListLayout")
 		verticalLayout.FillDirection = Enum.FillDirection.Horizontal
-		verticalLayout.Padding = UDim.new(0, 12)
+		verticalLayout.Padding = UDim.new(0, 8)
 		verticalLayout.Parent = verticalRow
 
 		local up = Components.createActionButton({
 			parent = verticalRow,
 			theme = Theme,
 			utils = Utils,
-			text = "▲ Up",
-			size = UDim2.new(0.5, -6, 1, 0),
+			text = "▲",
+			size = UDim2.new(0.25, -6, 1, 0),
 			onClick = function() end,
 		})
-
 		local down = Components.createActionButton({
 			parent = verticalRow,
 			theme = Theme,
 			utils = Utils,
-			text = "▼ Down",
-			size = UDim2.new(0.5, -6, 1, 0),
+			text = "▼",
+			size = UDim2.new(0.25, -6, 1, 0),
 			onClick = function() end,
 		})
-
-		Utils.holdRepeat(up, function()
-			FlyService:setVertical(1)
-		end, 0.2, 0.05, function()
-			FlyService:setVertical(0)
-		end)
-		Utils.holdRepeat(down, function()
-			FlyService:setVertical(-1)
-		end, 0.2, 0.05, function()
-			FlyService:setVertical(0)
-		end)
-
-		Components.createLabel({
-			parent = parent,
-			text = "Steer",
-			font = Theme.Fonts.body,
-			size = Theme.Sizes.body,
-			color = Theme.Colors.textSecondary,
-			sizeDim = UDim2.new(1, 0, 0, 20),
-			auto = Enum.AutomaticSize.None,
-		})
-
-		local steerRow = Instance.new("Frame")
-		steerRow.BackgroundTransparency = 1
-		steerRow.Size = UDim2.new(1, 0, 0, Theme.Sizes.minTouch)
-		steerRow.Parent = parent
-
-		local steerLayout = Instance.new("UIListLayout")
-		steerLayout.FillDirection = Enum.FillDirection.Horizontal
-		steerLayout.Padding = UDim.new(0, 12)
-		steerLayout.Parent = steerRow
-
 		local left = Components.createActionButton({
-			parent = steerRow,
+			parent = verticalRow,
 			theme = Theme,
 			utils = Utils,
 			text = "◀",
-			size = UDim2.new(1 / 3, -8, 1, 0),
+			size = UDim2.new(0.25, -6, 1, 0),
 			onClick = function() end,
 		})
-
 		local forward = Components.createActionButton({
-			parent = steerRow,
+			parent = verticalRow,
 			theme = Theme,
 			utils = Utils,
 			text = "Fwd",
 			color = Theme.Colors.accent,
-			size = UDim2.new(1 / 3, -8, 1, 0),
+			size = UDim2.new(0.25, -6, 1, 0),
 			onClick = function() end,
 		})
 
-		local right = Components.createActionButton({
-			parent = steerRow,
-			theme = Theme,
-			utils = Utils,
-			text = "▶",
-			size = UDim2.new(1 / 3, -8, 1, 0),
-			onClick = function() end,
-		})
-
-		Utils.holdRepeat(left, function()
-			FlyService:setStrafe(-1)
-		end, 0.2, 0.05, function()
-			FlyService:setStrafe(0)
-		end)
-		Utils.holdRepeat(right, function()
-			FlyService:setStrafe(1)
-		end, 0.2, 0.05, function()
-			FlyService:setStrafe(0)
-		end)
-		Utils.holdRepeat(forward, function()
-			FlyService:setForward(-1)
-		end, 0.2, 0.05, function()
-			FlyService:setForward(0)
-		end)
+		Utils.holdRepeat(up, function() FlyService:setVertical(1) end, 0.2, 0.05, function() FlyService:setVertical(0) end)
+		Utils.holdRepeat(down, function() FlyService:setVertical(-1) end, 0.2, 0.05, function() FlyService:setVertical(0) end)
+		Utils.holdRepeat(left, function() FlyService:setStrafe(-1) end, 0.2, 0.05, function() FlyService:setStrafe(0) end)
+		Utils.holdRepeat(forward, function() FlyService:setForward(-1) end, 0.2, 0.05, function() FlyService:setForward(0) end)
 
 		Components.createSegmented({
 			parent = parent,
@@ -2215,9 +2311,7 @@ local function buildFlyModule(deps)
 			options = { "Camera", "Character" },
 			default = State.flyReference == "Camera" and "Camera" or "Character",
 			onChange = function(value)
-				local reference = value == "Camera" and "Camera" or "Character"
-				FlyService:setReference(reference)
-				setStatus("Frame: " .. reference .. "-relative")
+				FlyService:setReference(value == "Camera" and "Camera" or "Character")
 			end,
 		})
 	end
@@ -2530,6 +2624,7 @@ local function bootstrap(loadModule)
 	local Haptic = loadModule("src/Haptic.lua")
 	local Components = loadModule("src/Components.lua")
 	local FloatingButton = loadModule("src/FloatingButton.lua")
+	local FlySpeedHud = loadModule("src/FlySpeedHud.lua")
 	local MenuSheet = loadModule("src/MenuSheet.lua")
 	local GameContext = loadModule("src/Services/GameContext.lua")
 	local FlyService = loadModule("src/Services/FlyService.lua")
@@ -2612,8 +2707,12 @@ local function bootstrap(loadModule)
 			utils = Utils,
 			state = State,
 			flyService = flyService,
-			platform = Platform,
 			setStatus = overlay.setStatus,
+			onSpeedHudSync = function()
+				if overlay.speedHud then
+					overlay.speedHud:sync()
+				end
+			end,
 		}),
 		Nav = buildNavModule({
 			theme = Theme,
@@ -2661,7 +2760,22 @@ local function bootstrap(loadModule)
 			overlay.menu:toggle()
 			overlay.button:setActive(State.menuOpen)
 		end,
+		onMove = function(button)
+			if overlay.speedHud then
+				overlay.speedHud:followButton(button)
+			end
+		end,
 	})
+
+	overlay.speedHud = FlySpeedHud.new({
+		theme = Theme,
+		utils = Utils,
+		state = State,
+		flyService = flyService,
+		screenGui = screenGui,
+		setStatus = overlay.setStatus,
+	})
+	overlay.speedHud:followButton(overlay.button.button)
 
 	overlay.menu:show()
 	overlay.button:setActive(true)
