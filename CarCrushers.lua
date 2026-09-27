@@ -62,17 +62,8 @@ function Platform.waitReady()
 	return localPlayer
 end
 
-function Platform.getGuiParent(localPlayer)
-	localPlayer = localPlayer or game:GetService("Players").LocalPlayer
-	if Platform.isMobile() and localPlayer then
-		local playerGui = localPlayer:FindFirstChildOfClass("PlayerGui")
-		if not playerGui then
-			playerGui = localPlayer:WaitForChild("PlayerGui", 10)
-		end
-		if playerGui then
-			return playerGui
-		end
-	end
+function Platform.getGuiParent(_localPlayer)
+	-- CoreGui renders above Roblox mobile controls; PlayerGui sits under them.
 	return game:GetService("CoreGui")
 end
 
@@ -91,7 +82,8 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.3.1"
+Config.VERSION = "1.3.2"
+Config.LAYOUT_VERSION = 4
 
 Config.PLACE_IDS = {
 	CC2 = 654732683,
@@ -251,8 +243,7 @@ end
 
 -- Roblox mobile UI zones (xMin, xMax, yMin, yMax) in screen scale
 Utils.ROBLOX_UI_ZONES = {
-	{ 0.58, 1.01, 0.0, 0.22 }, -- top-right: menu, chat
-	{ 0.52, 1.01, 0.58, 1.01 }, -- bottom-right: jump
+	{ 0.45, 1.01, 0.0, 1.01 }, -- entire right side on mobile
 	{ 0.0, 0.30, 0.62, 1.01 }, -- bottom-left: move stick
 }
 
@@ -262,12 +253,15 @@ end
 
 function Utils.getDefaultButtonPosition()
 	if Utils.isMobile() then
-		return { x = 0.12, y = 0.46 }
+		return { x = 0.11, y = 0.42 }
 	end
 	return { x = 0.94, y = 0.5 }
 end
 
 function Utils.isRobloxUiZone(x, y)
+	if not Utils.isMobile() then
+		return false
+	end
 	for _, zone in ipairs(Utils.ROBLOX_UI_ZONES) do
 		if x >= zone[1] and x <= zone[2] and y >= zone[3] and y <= zone[4] then
 			return true
@@ -279,6 +273,9 @@ end
 function Utils.sanitizeButtonPosition(point)
 	local defaultPos = Utils.getDefaultButtonPosition()
 	if typeof(point) ~= "table" or typeof(point.x) ~= "number" or typeof(point.y) ~= "number" then
+		return defaultPos
+	end
+	if Utils.isMobile() and point.x > 0.38 then
 		return defaultPos
 	end
 	if Utils.isRobloxUiZone(point.x, point.y) then
@@ -294,7 +291,7 @@ function Utils.clampButtonPosition(x, y, radiusPx)
 	local padY = (inset.Y + radiusPx) / viewport.Y
 
 	local minX = math.max(padX, 0.07)
-	local maxX = 1 - math.max(padX, 0.07)
+	local maxX = Utils.isMobile() and 0.38 or (1 - math.max(padX, 0.07))
 	local minY = math.max(padY, 0.12)
 	local maxY = 1 - math.max(padY, 0.14)
 
@@ -302,10 +299,27 @@ function Utils.clampButtonPosition(x, y, radiusPx)
 	y = Utils.clamp(y, minY, maxY)
 
 	if Utils.isRobloxUiZone(x, y) then
-		return Utils.getDefaultButtonPosition().x, Utils.getDefaultButtonPosition().y
+		local def = Utils.getDefaultButtonPosition()
+		return def.x, def.y
 	end
 
 	return x, y
+end
+
+function Utils.resetButtonLayout(layoutVersion)
+	local g = getgenv and getgenv() or _G
+	g.DeltaOverlay = g.DeltaOverlay or {}
+	if g.DeltaOverlay.layoutVersion ~= layoutVersion then
+		g.DeltaOverlay.buttonPosition = nil
+		g.DeltaOverlay.buttonPositionV2 = nil
+		g.DeltaOverlay.layoutVersion = layoutVersion
+		if writefile and isfile and isfile("delta_overlay/settings.json") then
+			pcall(function()
+				local HttpService = game:GetService("HttpService")
+				writefile("delta_overlay/settings.json", HttpService:JSONEncode(g.DeltaOverlay))
+			end)
+		end
+	end
 end
 
 function Utils.distanceBetween(a, b)
@@ -1036,6 +1050,7 @@ function FloatingButton:_create()
 	local saved = self.utils.getSavedPoint(SAVE_KEY, self.utils.getDefaultButtonPosition())
 	saved = self.utils.sanitizeButtonPosition(saved)
 	self:_applyScalePosition(saved)
+	self.utils.savePoint(SAVE_KEY, saved)
 	self:_notifyMove()
 
 	self:_bindDrag(button)
@@ -2683,6 +2698,7 @@ local function bootstrap(loadModule)
 	if g.DeltaOverlay.remoteUrl and g.DeltaOverlay.remoteUrl ~= "" then
 		Config.REMOTE.BUNDLE_URL = g.DeltaOverlay.remoteUrl
 	end
+	Utils.resetButtonLayout(Config.LAYOUT_VERSION)
 
 	local LocalPlayer = Platform.waitReady()
 
