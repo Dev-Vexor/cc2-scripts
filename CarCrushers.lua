@@ -106,8 +106,8 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.8.0"
-Config.UI_BUILD = "DERBY"
+Config.VERSION = "1.9.1"
+Config.UI_BUILD = "GOD"
 
 Config.DERBY = {
 	MIN_POWER = 200,
@@ -392,6 +392,18 @@ function Utils.sanitizeButtonPosition(point, radiusPx)
 	return point
 end
 
+function Utils.clampHudOffset(cx, cy, width, height)
+	local viewport = workspace.CurrentCamera.ViewportSize
+	local inset = Utils.getGuiInset()
+	width = width or 172
+	height = height or 112
+	local minX = 6
+	local maxX = math.max(minX, viewport.X - width - 6)
+	local minY = math.max(inset.Y + 8, 8)
+	local maxY = math.max(minY, viewport.Y - height - 8)
+	return Utils.clamp(cx, minX, maxX), Utils.clamp(cy, minY, maxY)
+end
+
 function Utils.clampButtonOffset(cx, cy, radiusPx)
 	local inset = Utils.getGuiInset()
 	local viewport = workspace.CurrentCamera.ViewportSize
@@ -627,6 +639,8 @@ local State = {
 	activeTab = "Fly",
 	minimalMode = false,
 	flyEnabled = false,
+	flyHudOpen = false,
+	godMode = true,
 	flySpeed = 80,
 	flyReference = "Camera",
 	flyVertical = 0,
@@ -1361,16 +1375,21 @@ return FloatingButton
 local FlySpeedHud = {}
 FlySpeedHud.__index = FlySpeedHud
 
+local SAVE_KEY = "flyHudPosition"
+
 function FlySpeedHud.new(deps)
 	local self = setmetatable({}, FlySpeedHud)
 	self.theme = deps.theme
 	self.utils = deps.utils
 	self.state = deps.state
 	self.flyService = deps.flyService
+	self.godService = deps.godService
 	self.screenGui = deps.screenGui
 	self.setStatus = deps.setStatus
 	self.config = deps.config
 	self.root = self:_create()
+	self:_bindDrag()
+	self:_loadPosition()
 	self:sync()
 	return self
 end
@@ -1391,49 +1410,98 @@ function FlySpeedHud:_makeBtn(parent, text, size, color)
 	return btn
 end
 
+function FlySpeedHud:_defaultOffset()
+	local viewport = workspace.CurrentCamera.ViewportSize
+	local w, h = 176, 118
+	return {
+		mode = "offset",
+		x = math.max((viewport.X - w) * 0.5, 8),
+		y = math.max(viewport.Y - h - 16, 80),
+	}
+end
+
+function FlySpeedHud:_applyOffset(x, y)
+	x, y = self.utils.clampHudOffset(x, y, self.root.AbsoluteSize.X, self.root.AbsoluteSize.Y)
+	self.root.AnchorPoint = Vector2.new(0, 0)
+	self.root.Position = UDim2.fromOffset(x, y)
+end
+
+function FlySpeedHud:_loadPosition()
+	local saved = self.utils.getSavedPoint(SAVE_KEY, self:_defaultOffset())
+	if typeof(saved) == "table" and typeof(saved.x) == "number" and typeof(saved.y) == "number" then
+		if saved.mode == "offset" then
+			self:_applyOffset(saved.x, saved.y)
+			return
+		end
+		local viewport = workspace.CurrentCamera.ViewportSize
+		self:_applyOffset(saved.x * viewport.X, saved.y * viewport.Y)
+		return
+	end
+	local def = self:_defaultOffset()
+	self:_applyOffset(def.x, def.y)
+end
+
 function FlySpeedHud:_create()
 	local Theme = self.theme
 	local root = Instance.new("Frame")
 	root.Name = "FlyControlHud"
 	root.BackgroundColor3 = Theme.Colors.bgPrimary
-	root.BackgroundTransparency = 0.05
-	root.Size = UDim2.fromOffset(168, 92)
-	root.AnchorPoint = Vector2.new(0.5, 1)
-	root.Position = UDim2.new(0.5, 0, 1, -14)
+	root.BackgroundTransparency = 0.04
+	root.Size = UDim2.fromOffset(176, 118)
+	root.Active = true
 	root.Visible = false
 	root.ZIndex = 50
 	root.Parent = self.screenGui
 	Instance.new("UICorner", root).CornerRadius = UDim.new(0, 10)
 
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 5)
+	pad.PaddingTop = UDim.new(0, 4)
 	pad.PaddingBottom = UDim.new(0, 5)
 	pad.PaddingLeft = UDim.new(0, 5)
 	pad.PaddingRight = UDim.new(0, 5)
 	pad.Parent = root
 
+	self.grabber = Instance.new("TextButton")
+	self.grabber.Name = "Grabber"
+	self.grabber.AutoButtonColor = false
+	self.grabber.Text = "::::"
+	self.grabber.Font = Theme.Fonts.header
+	self.grabber.TextSize = 10
+	self.grabber.TextColor3 = Theme.Colors.textSecondary
+	self.grabber.BackgroundColor3 = Theme.Colors.bgSecondary
+	self.grabber.Size = UDim2.new(1, 0, 0, 14)
+	self.grabber.ZIndex = 51
+	self.grabber.Parent = root
+	Instance.new("UICorner", self.grabber).CornerRadius = UDim.new(0, 6)
+
+	self.flyBtn = self:_makeBtn(root, "FLY", UDim2.new(0.48, -3, 0, 22), Theme.Colors.accent)
+	self.flyBtn.Position = UDim2.fromOffset(0, 18)
+	self.godBtn = self:_makeBtn(root, "GOD", UDim2.new(0.48, -3, 0, 22))
+	self.godBtn.Position = UDim2.new(0.52, 3, 0, 18)
+
 	local speedRow = Instance.new("Frame")
 	speedRow.BackgroundTransparency = 1
-	speedRow.Size = UDim2.new(1, 0, 0, 24)
+	speedRow.Size = UDim2.new(1, 0, 0, 22)
+	speedRow.Position = UDim2.fromOffset(0, 44)
 	speedRow.Parent = root
 
-	self.minusBtn = self:_makeBtn(speedRow, "-", UDim2.fromOffset(24, 24))
+	self.minusBtn = self:_makeBtn(speedRow, "-", UDim2.fromOffset(22, 22))
 	self.valueLabel = Instance.new("TextLabel")
 	self.valueLabel.BackgroundColor3 = Theme.Colors.bgSecondary
 	self.valueLabel.Font = Theme.Fonts.mono
 	self.valueLabel.TextSize = 11
 	self.valueLabel.TextColor3 = Theme.Colors.textPrimary
-	self.valueLabel.Size = UDim2.new(1, -56, 1, 0)
-	self.valueLabel.Position = UDim2.fromOffset(28, 0)
+	self.valueLabel.Size = UDim2.new(1, -52, 1, 0)
+	self.valueLabel.Position = UDim2.fromOffset(26, 0)
 	self.valueLabel.Parent = speedRow
 	Instance.new("UICorner", self.valueLabel).CornerRadius = UDim.new(0, 6)
-	self.plusBtn = self:_makeBtn(speedRow, "+", UDim2.fromOffset(24, 24))
-	self.plusBtn.Position = UDim2.new(1, -24, 0, 0)
+	self.plusBtn = self:_makeBtn(speedRow, "+", UDim2.fromOffset(22, 22))
+	self.plusBtn.Position = UDim2.new(1, -22, 0, 0)
 
 	local dirRow = Instance.new("Frame")
 	dirRow.BackgroundTransparency = 1
-	dirRow.Size = UDim2.new(1, 0, 0, 24)
-	dirRow.Position = UDim2.fromOffset(0, 28)
+	dirRow.Size = UDim2.new(1, 0, 0, 22)
+	dirRow.Position = UDim2.fromOffset(0, 70)
 	dirRow.Parent = root
 
 	self.upBtn = self:_makeBtn(dirRow, "^", UDim2.new(0.25, -3, 1, 0))
@@ -1444,10 +1512,10 @@ function FlySpeedHud:_create()
 	self.fwdBtn = self:_makeBtn(dirRow, "F", UDim2.new(0.25, -1, 1, 0), Theme.Colors.accent)
 	self.fwdBtn.Position = UDim2.new(0.75, 1, 0, 0)
 
-	self.autoBtn = self:_makeBtn(root, "Auto", UDim2.new(0.48, -3, 0, 24), Theme.Colors.success)
-	self.autoBtn.Position = UDim2.new(0, 0, 1, -24)
-	self.lockBtn = self:_makeBtn(root, "Lock", UDim2.new(0.48, -3, 0, 24))
-	self.lockBtn.Position = UDim2.new(0.52, 3, 1, -24)
+	self.autoBtn = self:_makeBtn(root, "Auto", UDim2.new(0.48, -3, 0, 22), Theme.Colors.success)
+	self.autoBtn.Position = UDim2.new(0, 0, 1, -22)
+	self.lockBtn = self:_makeBtn(root, "Lock", UDim2.new(0.48, -3, 0, 22))
+	self.lockBtn.Position = UDim2.new(0.52, 3, 1, -22)
 
 	local function bump(delta)
 		local fly = self.config and self.config.FLY or { MIN_SPEED = 16, MAX_SPEED = 600 }
@@ -1485,6 +1553,24 @@ function FlySpeedHud:_create()
 		self.flyService:setForward(0)
 	end)
 
+	self.flyBtn.MouseButton1Click:Connect(function()
+		local nextValue = not self.state.flyEnabled
+		self.flyService:setEnabled(nextValue)
+		self.state.flyHudOpen = true
+		self:sync()
+		self.setStatus(nextValue and "Fly on" or "Fly off")
+	end)
+
+	self.godBtn.MouseButton1Click:Connect(function()
+		if self.godService then
+			self.godService:setEnabled(not self.state.godMode)
+		else
+			self.state.godMode = not self.state.godMode
+		end
+		self:sync()
+		self.setStatus(self.state.godMode and "No damage on" or "No damage off")
+	end)
+
 	self.autoBtn.MouseButton1Click:Connect(function()
 		self.flyService:setAutoDrive(true)
 		self:sync()
@@ -1500,32 +1586,84 @@ function FlySpeedHud:_create()
 	return root
 end
 
+function FlySpeedHud:_bindDrag()
+	local UserInputService = game:GetService("UserInputService")
+	local dragging = false
+	local activeInput
+	local dragStart
+	local startX
+	local startY
+
+	self.grabber.InputBegan:Connect(function(input)
+		if
+			input.UserInputType == Enum.UserInputType.Touch
+			or input.UserInputType == Enum.UserInputType.MouseButton1
+		then
+			activeInput = input
+			dragging = false
+			dragStart = input.Position
+			startX = self.root.Position.X.Offset
+			startY = self.root.Position.Y.Offset
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if not activeInput or input ~= activeInput then
+			return
+		end
+		local delta = input.Position - dragStart
+		if delta.Magnitude > 6 then
+			dragging = true
+		end
+		if dragging then
+			self:_applyOffset(startX + delta.X, startY + delta.Y)
+		end
+	end)
+
+	local function finish(input)
+		if not activeInput or input ~= activeInput then
+			return
+		end
+		if dragging then
+			self.utils.savePoint(SAVE_KEY, {
+				mode = "offset",
+				x = self.root.Position.X.Offset,
+				y = self.root.Position.Y.Offset,
+			})
+		end
+		activeInput = nil
+		dragging = false
+	end
+
+	self.grabber.InputEnded:Connect(finish)
+	UserInputService.InputEnded:Connect(finish)
+end
+
 function FlySpeedHud:sync()
 	self.valueLabel.Text = tostring(math.floor(self.state.flySpeed + 0.5))
-	self.root.Visible = self.state.flyEnabled
+	self.root.Visible = self.state.flyHudOpen == true
+	self.flyBtn.BackgroundColor3 = self.state.flyEnabled and self.theme.Colors.success or self.theme.Colors.accent
+	self.flyBtn.Text = self.state.flyEnabled and "FLY ON" or "FLY"
+	self.godBtn.BackgroundColor3 = self.state.godMode and self.theme.Colors.success or self.theme.Colors.buttonGlass
+	self.godBtn.Text = self.state.godMode and "GOD ON" or "GOD"
 	self.autoBtn.Visible = not self.state.autoDrive
 	if self.state.autoDrive then
-		self.lockBtn.Size = UDim2.new(1, 0, 0, 24)
-		self.lockBtn.Position = UDim2.new(0, 0, 1, -24)
+		self.lockBtn.Size = UDim2.new(1, 0, 0, 22)
+		self.lockBtn.Position = UDim2.new(0, 0, 1, -22)
 	else
-		self.lockBtn.Size = UDim2.new(0.48, -3, 0, 24)
-		self.lockBtn.Position = UDim2.new(0.52, 3, 1, -24)
+		self.lockBtn.Size = UDim2.new(0.48, -3, 0, 22)
+		self.lockBtn.Position = UDim2.new(0.52, 3, 1, -22)
 	end
 	self.lockBtn.BackgroundColor3 = self.state.seatLock and self.theme.Colors.success or self.theme.Colors.buttonGlass
 	self.lockBtn.Text = self.state.seatLock and "Lock ON" or "Lock"
 end
 
 function FlySpeedHud:followButton(_button)
-	self.root.AnchorPoint = Vector2.new(0.5, 1)
-	self.root.Position = UDim2.new(0.5, 0, 1, -14)
 	self.root.ZIndex = 50
 end
 
 function FlySpeedHud:setVisible(visible)
-	if not self.state.flyEnabled then
-		self.root.Visible = false
-		return
-	end
+	self.state.flyHudOpen = visible
 	self.root.Visible = visible
 end
 
@@ -2722,6 +2860,193 @@ end
 
 return DerbyService
 ]=],
+	["src/Services/GodService.lua"] = [=[
+local GodService = {}
+GodService.__index = GodService
+
+local HEALTH_KEYS = {
+	health = true,
+	hp = true,
+	durability = true,
+	carhealth = true,
+	currenthealth = true,
+	maxhealth = true,
+	integrity = true,
+	parthealth = true,
+}
+
+local DAMAGE_KEYS = {
+	damage = true,
+	dmg = true,
+	broken = true,
+	destroyed = true,
+	crushed = true,
+}
+
+local function nameKey(name)
+	return string.lower((name or ""):gsub("[%s_%-]", ""))
+end
+
+local function isWheelPart(part)
+	local key = nameKey(part.Name)
+	if string.find(key, "wheel", 1, true) or string.find(key, "tire", 1, true) or string.find(key, "rim", 1, true) then
+		return true
+	end
+	return part:FindFirstChildWhichIsA("HingeConstraint") ~= nil
+		or part:FindFirstChildWhichIsA("CylindricalConstraint") ~= nil
+end
+
+function GodService.new(state, gameContext)
+	local self = setmetatable({}, GodService)
+	self.state = state
+	self.gameContext = gameContext
+	self.connection = nil
+	self.healthConn = nil
+	self.localVehicle = nil
+	self:_start()
+	return self
+end
+
+function GodService:setEnabled(enabled)
+	self.state.godMode = enabled
+	if enabled then
+		self:_protectHumanoid()
+		self:_protectLocalCar()
+	end
+end
+
+function GodService:_isLocalVehicle(vehicle)
+	if not vehicle then
+		return false
+	end
+	local mine = self.gameContext:getActiveVehicle()
+	if mine and vehicle == mine then
+		return true
+	end
+	local playerName = game:GetService("Players").LocalPlayer.Name
+	return vehicle.Name == playerName .. "'s Car"
+		or vehicle.Name == playerName .. "'sCar"
+		or vehicle:IsDescendantOf(mine or vehicle) == false and mine == vehicle
+end
+
+function GodService:_protectHumanoid()
+	local player = game:GetService("Players").LocalPlayer
+	local character = player and player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return
+	end
+
+	pcall(function()
+		humanoid.BreakJointsOnDeath = false
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+		if humanoid.MaxHealth < 100 then
+			humanoid.MaxHealth = 100
+		end
+		humanoid.Health = humanoid.MaxHealth
+	end)
+
+	if self.healthConn then
+		self.healthConn:Disconnect()
+		self.healthConn = nil
+	end
+	self.healthConn = humanoid.HealthChanged:Connect(function()
+		if self.state.godMode then
+			humanoid.Health = humanoid.MaxHealth
+		end
+	end)
+end
+
+function GodService:_restoreValues(root)
+	for _, inst in ipairs(root:GetDescendants()) do
+		local key = nameKey(inst.Name)
+		if inst:IsA("BoolValue") and (DAMAGE_KEYS[key] or string.find(key, "broken", 1, true)) then
+			inst.Value = false
+		elseif inst:IsA("NumberValue") or inst:IsA("IntValue") or inst:IsA("DoubleConstrainedValue") then
+			if HEALTH_KEYS[key] or string.find(key, "health", 1, true) or string.find(key, "hp", 1, true) then
+				local maxV = inst.MaxValue or inst:GetAttribute("Max") or inst:GetAttribute("MaxValue") or 999999
+				pcall(function()
+					inst.Value = maxV
+				end)
+			elseif DAMAGE_KEYS[key] or string.find(key, "damage", 1, true) then
+				pcall(function()
+					inst.Value = 0
+				end)
+			end
+		end
+	end
+
+	pcall(function()
+		root:SetAttribute("Broken", false)
+		root:SetAttribute("Destroyed", false)
+		root:SetAttribute("Invincible", true)
+	end)
+end
+
+function GodService:_reweldLocal(vehicle)
+	local primary = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart", true)
+	if not primary then
+		return
+	end
+
+	for _, part in ipairs(vehicle:GetDescendants()) do
+		if part:IsA("BasePart") and part ~= primary and not isWheelPart(part) then
+			if part.Transparency > 0.85 then
+				part.Transparency = 0
+			end
+			pcall(function()
+				if #part:GetJoints() == 0 then
+					local weld = Instance.new("WeldConstraint")
+					weld.Name = "GodWeld"
+					weld.Part0 = primary
+					weld.Part1 = part
+					weld.Parent = part
+				end
+			end)
+		end
+	end
+end
+
+function GodService:_protectLocalCar()
+	local vehicle = self.gameContext:getActiveVehicle()
+	if not vehicle or not self:_isLocalVehicle(vehicle) then
+		return
+	end
+
+	self.localVehicle = vehicle
+	self:_restoreValues(vehicle)
+	self:_reweldLocal(vehicle)
+
+	local body = vehicle:FindFirstChild("Body")
+	if body then
+		self:_restoreValues(body)
+	end
+end
+
+function GodService:_start()
+	if self.connection then
+		return
+	end
+
+	local player = game:GetService("Players").LocalPlayer
+	player.CharacterAdded:Connect(function()
+		task.wait(0.3)
+		if self.state.godMode then
+			self:_protectHumanoid()
+		end
+	end)
+
+	self.connection = game:GetService("RunService").Heartbeat:Connect(function()
+		if not self.state.godMode then
+			return
+		end
+		self:_protectHumanoid()
+		self:_protectLocalCar()
+	end)
+end
+
+return GodService
+]=],
 	["src/Modules/FlyModule.lua"] = [=[
 local function buildFlyModule(deps)
 	local Theme = deps.theme
@@ -2732,6 +3057,7 @@ local function buildFlyModule(deps)
 	local setStatus = deps.setStatus
 	local onSpeedHudSync = deps.onSpeedHudSync
 	local onFlyChange = deps.onFlyChange
+	local GodService = deps.godService
 	local Config = deps.config
 
 	return function(parent)
@@ -2766,6 +3092,24 @@ local function buildFlyModule(deps)
 				if onSpeedHudSync then
 					onSpeedHudSync()
 				end
+			end,
+		})
+
+		Components.createSwitch({
+			parent = parent,
+			theme = Theme,
+			label = "No damage",
+			default = State.godMode,
+			onChange = function(value)
+				if GodService then
+					GodService:setEnabled(value)
+				else
+					State.godMode = value
+				end
+				if onSpeedHudSync then
+					onSpeedHudSync()
+				end
+				setStatus(value and "No damage on" or "No damage off")
 			end,
 		})
 
@@ -3308,6 +3652,7 @@ local function bootstrap(loadModule)
 	local NavService = loadModule("src/Services/NavService.lua")
 	local ArenaService = loadModule("src/Services/ArenaService.lua")
 	local DerbyService = loadModule("src/Services/DerbyService.lua")
+	local GodService = loadModule("src/Services/GodService.lua")
 	local buildFlyModule = loadModule("src/Modules/FlyModule.lua")
 	local buildNavModule = loadModule("src/Modules/NavModule.lua")
 	local buildArenaModule = loadModule("src/Modules/ArenaModule.lua")
@@ -3356,7 +3701,7 @@ local function bootstrap(loadModule)
 	local gameContext = GameContext.new(Config, Utils)
 
 	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "DeltaOverlay_v170"
+	screenGui.Name = "DeltaOverlay_v190"
 	screenGui.ResetOnSpawn = false
 	screenGui.IgnoreGuiInset = true
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -3368,6 +3713,7 @@ local function bootstrap(loadModule)
 	local navService = NavService.new(State, Utils, Theme, gameContext, Config)
 	local arenaService = ArenaService.new(State, Utils, gameContext, navService)
 	local derbyService = DerbyService.new(State, Utils, gameContext, Config)
+	local godService = GodService.new(State, gameContext)
 
 	local overlay = {
 		version = Config.VERSION,
@@ -3406,6 +3752,7 @@ local function bootstrap(loadModule)
 			state = State,
 			config = Config,
 			flyService = flyService,
+			godService = godService,
 			setStatus = overlay.setStatus,
 			onSpeedHudSync = function()
 				if overlay.speedHud then
@@ -3413,6 +3760,7 @@ local function bootstrap(loadModule)
 				end
 			end,
 			onFlyChange = function(enabled)
+				State.flyHudOpen = true
 				if overlay.speedHud then
 					overlay.speedHud:sync()
 				end
@@ -3480,10 +3828,7 @@ local function bootstrap(loadModule)
 			overlay.menu:toggle()
 			overlay.button:setActive(overlay.menu.panel.Visible)
 		end,
-		onMove = function(button)
-			if overlay.speedHud then
-				overlay.speedHud:followButton(button)
-			end
+		onMove = function()
 		end,
 	})
 
@@ -3492,11 +3837,11 @@ local function bootstrap(loadModule)
 		utils = Utils,
 		state = State,
 		flyService = flyService,
+		godService = godService,
 		screenGui = screenGui,
 		config = Config,
 		setStatus = overlay.setStatus,
 	})
-	overlay.speedHud:followButton(overlay.button.button)
 
 	overlay.menu:show()
 	overlay.button:setActive(true)
