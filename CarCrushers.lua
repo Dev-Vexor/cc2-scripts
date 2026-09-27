@@ -106,7 +106,8 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.3.4"
+Config.VERSION = "1.4.0"
+Config.UI_BUILD = "TOP_MENU"
 Config.LAYOUT_VERSION = 5
 
 Config.PLACE_IDS = {
@@ -184,7 +185,7 @@ Theme.Sizes = {
 	avatar = 32,
 	grabberWidth = 32,
 	grabberHeight = 4,
-	sheetHeight = 0.82,
+	panelHeight = 0.58,
 	contentPadding = 10,
 }
 
@@ -513,16 +514,15 @@ function Animation.easeInCubic(t)
 	return t * t * t
 end
 
-function Animation.sheetPresent(frame, onComplete)
+function Animation.topPanelPresent(frame, openY, onComplete)
 	local TweenService = game:GetService("TweenService")
-	local target = UDim2.new(0.5, 0, 1, 0)
-	local hidden = UDim2.new(0.5, 0, 1.05, 0)
+	local hidden = UDim2.new(0.5, 0, 0, openY - frame.AbsoluteSize.Y - 40)
 	frame.Position = hidden
 	frame.Visible = true
 	local tween = TweenService:Create(
 		frame,
-		TweenInfo.new(0.3, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out),
-		{ Position = target }
+		TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out),
+		{ Position = UDim2.new(0.5, 0, 0, openY) }
 	)
 	tween:Play()
 	if onComplete then
@@ -531,12 +531,12 @@ function Animation.sheetPresent(frame, onComplete)
 	return tween
 end
 
-function Animation.sheetDismiss(frame, onComplete)
+function Animation.topPanelDismiss(frame, openY, onComplete)
 	local TweenService = game:GetService("TweenService")
-	local hidden = UDim2.new(0.5, 0, 1.05, 0)
+	local hidden = UDim2.new(0.5, 0, 0, openY - frame.AbsoluteSize.Y - 40)
 	local tween = TweenService:Create(
 		frame,
-		TweenInfo.new(0.25, Enum.EasingStyle.Cubic, Enum.EasingDirection.In),
+		TweenInfo.new(0.22, Enum.EasingStyle.Cubic, Enum.EasingDirection.In),
 		{ Position = hidden }
 	)
 	tween:Play()
@@ -549,28 +549,23 @@ function Animation.sheetDismiss(frame, onComplete)
 	return tween
 end
 
+-- Legacy aliases (unused after 1.4.0)
+function Animation.sheetPresent(frame, onComplete)
+	return Animation.topPanelPresent(frame, frame.Position.Y.Offset, onComplete)
+end
+
+function Animation.sheetDismiss(frame, onComplete)
+	return Animation.topPanelDismiss(frame, frame.Position.Y.Offset, onComplete)
+end
+
 function Animation.crossfade(hideFrame, showFrame, duration)
 	duration = duration or 0.2
-	hideFrame.Visible = true
-	showFrame.Visible = true
-	showFrame.BackgroundTransparency = 1
-	for _, child in showFrame:GetDescendants() do
-		if child:IsA("GuiObject") then
-			child.BackgroundTransparency = 1
-			if child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("TextBox") then
-				child.TextTransparency = 1
-			end
-		end
-	end
-
-	local TweenService = game:GetService("TweenService")
-	TweenService:Create(hideFrame, TweenInfo.new(duration), { BackgroundTransparency = 1 }):Play()
-	TweenService:Create(showFrame, TweenInfo.new(duration), { BackgroundTransparency = showFrame:GetAttribute("TargetTransparency") or 1 }):Play()
-
-	task.delay(duration, function()
+	if hideFrame then
 		hideFrame.Visible = false
-		hideFrame.BackgroundTransparency = hideFrame:GetAttribute("TargetTransparency") or 1
-	end)
+	end
+	if showFrame then
+		showFrame.Visible = true
+	end
 end
 
 function Animation.staggerFade(children, interval)
@@ -1444,8 +1439,7 @@ return FlySpeedHud
 local MenuSheet = {}
 MenuSheet.__index = MenuSheet
 
-local HEADER_HEIGHT = 102
-local FOOTER_HEIGHT = 30
+local HEADER_HEIGHT = 88
 
 function MenuSheet.new(deps)
 	local self = setmetatable({}, MenuSheet)
@@ -1458,8 +1452,8 @@ function MenuSheet.new(deps)
 	self.modules = deps.modules
 	self.onClose = deps.onClose
 	self.setStatus = deps.setStatus
-	self.dismissThreshold = 140
 
+	self.openY = 0
 	self.root = self:_create()
 	self.tabFrames = {}
 	self:_buildTabs()
@@ -1469,57 +1463,45 @@ end
 function MenuSheet:_create()
 	local Theme = self.theme
 	local inset = self.utils.getGuiInset()
-	local sheetHeight = Theme.Sizes.sheetHeight or 0.82
+	local panelHeight = Theme.Sizes.panelHeight or 0.58
 
-	local sheet = Instance.new("Frame")
-	sheet.Name = "MenuSheet"
-	sheet.AnchorPoint = Vector2.new(0.5, 1)
-	sheet.Position = UDim2.new(0.5, 0, 1.05, 0)
-	sheet.Size = UDim2.new(1, 0, sheetHeight, -math.max(inset.Y, 0))
-	sheet.BackgroundColor3 = Theme.Colors.bgPrimary
-	sheet.BackgroundTransparency = Theme.Transparency.sheetMaterial
-	sheet.Visible = false
-	sheet.ZIndex = 20
-	sheet.ClipsDescendants = true
-	sheet.Parent = self.screenGui
+	self.openY = inset.Y + 6
 
-	local topCorner = Instance.new("UICorner")
-	topCorner.CornerRadius = UDim.new(0, Theme.Sizes.cornerSheet)
-	topCorner.Parent = sheet
+	local panel = Instance.new("Frame")
+	panel.Name = "TopMenuPanel"
+	panel.AnchorPoint = Vector2.new(0.5, 0)
+	panel.Position = UDim2.new(0.5, 0, 0, self.openY - 500)
+	panel.Size = UDim2.new(1, -10, panelHeight, 0)
+	panel.BackgroundColor3 = Theme.Colors.bgPrimary
+	panel.BackgroundTransparency = 0.04
+	panel.Visible = false
+	panel.ZIndex = 20
+	panel.ClipsDescendants = true
+	panel.Parent = self.screenGui
+
+	local bottomCorner = Instance.new("UICorner")
+	bottomCorner.CornerRadius = UDim.new(0, Theme.Sizes.cornerSheet)
+	bottomCorner.Parent = panel
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = Theme.Colors.textSecondary
-	stroke.Transparency = 0.75
+	stroke.Transparency = 0.7
 	stroke.Thickness = 1
-	stroke.Parent = sheet
+	stroke.Parent = panel
 
 	local header = Instance.new("Frame")
 	header.Name = "Header"
-	header.BackgroundTransparency = 1
+	header.BackgroundColor3 = Theme.Colors.bgSecondary
+	header.BackgroundTransparency = 0.12
 	header.Size = UDim2.new(1, 0, 0, HEADER_HEIGHT)
 	header.Position = UDim2.fromOffset(0, 0)
 	header.ZIndex = 2
-	header.Parent = sheet
-
-	local grabber = Instance.new("Frame")
-	grabber.Name = "Grabber"
-	grabber.AnchorPoint = Vector2.new(0.5, 0)
-	grabber.Position = UDim2.new(0.5, 0, 0, 8)
-	grabber.Size = UDim2.fromOffset(Theme.Sizes.grabberWidth, Theme.Sizes.grabberHeight)
-	grabber.BackgroundColor3 = Theme.Colors.textSecondary
-	grabber.BackgroundTransparency = 0.25
-	grabber.Active = true
-	grabber.ZIndex = 3
-	grabber.Parent = header
-
-	local grabberCorner = Instance.new("UICorner")
-	grabberCorner.CornerRadius = UDim.new(1, 0)
-	grabberCorner.Parent = grabber
+	header.Parent = panel
 
 	local titleRow = Instance.new("Frame")
 	titleRow.BackgroundTransparency = 1
-	titleRow.Size = UDim2.new(1, 0, 0, 36)
-	titleRow.Position = UDim2.fromOffset(0, 22)
+	titleRow.Size = UDim2.new(1, 0, 0, 34)
+	titleRow.Position = UDim2.fromOffset(0, 8)
 	titleRow.Parent = header
 
 	local title = Instance.new("TextLabel")
@@ -1527,9 +1509,9 @@ function MenuSheet:_create()
 	title.Font = Theme.Fonts.header
 	title.TextSize = Theme.Sizes.header
 	title.TextColor3 = Theme.Colors.textPrimary
-	title.Text = "CC2 Overlay"
+	title.Text = "CC2 Menu"
 	title.Size = UDim2.new(1, -88, 1, 0)
-	title.Position = UDim2.fromOffset(14, 0)
+	title.Position = UDim2.fromOffset(12, 0)
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.Parent = titleRow
 
@@ -1539,9 +1521,9 @@ function MenuSheet:_create()
 	close.Text = "X"
 	close.Font = Theme.Fonts.header
 	close.TextSize = 15
-	close.TextColor3 = Theme.Colors.textSecondary
-	close.BackgroundColor3 = Theme.Colors.bgSecondary
-	close.BackgroundTransparency = 0.2
+	close.TextColor3 = Theme.Colors.textPrimary
+	close.BackgroundColor3 = Theme.Colors.danger
+	close.BackgroundTransparency = 0.15
 	close.Size = UDim2.fromOffset(34, 34)
 	close.Position = UDim2.new(1, -44, 0.5, 0)
 	close.AnchorPoint = Vector2.new(0, 0.5)
@@ -1554,51 +1536,26 @@ function MenuSheet:_create()
 	local segmentedHost = Instance.new("Frame")
 	segmentedHost.Name = "SegmentedHost"
 	segmentedHost.BackgroundTransparency = 1
-	segmentedHost.Size = UDim2.new(1, -24, 0, 34)
-	segmentedHost.Position = UDim2.fromOffset(12, 60)
+	segmentedHost.Size = UDim2.new(1, -20, 0, 34)
+	segmentedHost.Position = UDim2.fromOffset(10, 46)
 	segmentedHost.Parent = header
 
 	local contentHost = Instance.new("Frame")
 	contentHost.Name = "ContentHost"
 	contentHost.BackgroundTransparency = 1
 	contentHost.ClipsDescendants = true
-	contentHost.Size = UDim2.new(1, -24, 1, -(HEADER_HEIGHT + FOOTER_HEIGHT + 8))
-	contentHost.Position = UDim2.fromOffset(12, HEADER_HEIGHT + 4)
+	contentHost.Size = UDim2.new(1, -16, 1, -(HEADER_HEIGHT + 6))
+	contentHost.Position = UDim2.fromOffset(8, HEADER_HEIGHT + 4)
 	contentHost.ZIndex = 1
-	contentHost.Parent = sheet
+	contentHost.Parent = panel
 
-	local footer = Instance.new("Frame")
-	footer.Name = "Footer"
-	footer.BackgroundColor3 = Theme.Colors.bgSecondary
-	footer.BackgroundTransparency = 0.15
-	footer.Size = UDim2.new(1, 0, 0, FOOTER_HEIGHT)
-	footer.AnchorPoint = Vector2.new(0, 1)
-	footer.Position = UDim2.new(0, 0, 1, 0)
-	footer.ZIndex = 2
-	footer.Parent = sheet
-
-	local statusLabel = Instance.new("TextLabel")
-	statusLabel.Name = "StatusLabel"
-	statusLabel.BackgroundTransparency = 1
-	statusLabel.Font = Theme.Fonts.mono
-	statusLabel.TextSize = Theme.Sizes.mono
-	statusLabel.TextColor3 = Theme.Colors.textSecondary
-	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-	statusLabel.Text = self.state.statusText
-	statusLabel.Size = UDim2.new(1, -16, 1, 0)
-	statusLabel.Position = UDim2.fromOffset(10, 0)
-	statusLabel.Parent = footer
-
-	self.sheet = sheet
-	self.statusLabel = statusLabel
+	self.panel = panel
 	self.contentHost = contentHost
 
 	close.MouseButton1Click:Connect(function()
 		self.utils.springScale(close, 0.95)
 		self:hide()
 	end)
-
-	self:_bindDragDismiss(sheet, grabber)
 
 	local _, segmented = self.components.createSegmented({
 		parent = segmentedHost,
@@ -1611,86 +1568,28 @@ function MenuSheet:_create()
 	})
 	self.segmented = segmented
 
-	return sheet
-end
-
-function MenuSheet:_bindDragDismiss(sheet, handle)
-	local UserInputService = game:GetService("UserInputService")
-	local activeInput
-	local dragStart
-	local startY
-	local dragging = false
-
-	handle.InputBegan:Connect(function(input)
-		if
-			input.UserInputType == Enum.UserInputType.Touch
-			or input.UserInputType == Enum.UserInputType.MouseButton1
-		then
-			activeInput = input
-			dragStart = input.Position
-			startY = sheet.Position.Y.Offset
-			dragging = false
-		end
-	end)
-
-	UserInputService.InputChanged:Connect(function(input)
-		if not activeInput or input ~= activeInput then
-			return
-		end
-		if
-			input.UserInputType ~= Enum.UserInputType.Touch
-			and input.UserInputType ~= Enum.UserInputType.MouseMovement
-		then
-			return
-		end
-		local delta = input.Position.Y - dragStart.Y
-		if delta > 10 then
-			dragging = true
-		end
-		if dragging and delta > 0 then
-			sheet.Position = UDim2.new(0.5, 0, 1, startY + delta)
-		end
-	end)
-
-	local function finish(input)
-		if not activeInput or input ~= activeInput then
-			return
-		end
-		if
-			input.UserInputType ~= Enum.UserInputType.Touch
-			and input.UserInputType ~= Enum.UserInputType.MouseButton1
-		then
-			return
-		end
-		local delta = input.Position.Y - dragStart.Y
-		activeInput = nil
-		if dragging and delta > self.dismissThreshold then
-			self:hide()
-		else
-			self.animation.sheetPresent(sheet)
-		end
-		dragging = false
-		dragStart = nil
-	end
-
-	handle.InputEnded:Connect(finish)
-	UserInputService.InputEnded:Connect(finish)
+	return panel
 end
 
 function MenuSheet:_configureScroll(frame)
 	frame.BackgroundTransparency = 1
 	frame.BorderSizePixel = 0
 	frame.Size = UDim2.fromScale(1, 1)
-	frame.CanvasSize = UDim2.new()
-	frame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	frame.Position = UDim2.fromOffset(0, 0)
+	frame.CanvasPosition = Vector2.zero
+	frame.CanvasSize = UDim2.fromOffset(0, 0)
 	frame.ScrollingDirection = Enum.ScrollingDirection.Y
 	frame.ScrollingEnabled = true
 	frame.Active = true
-	frame.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
-	frame.ScrollBarThickness = 5
-	frame.ScrollBarImageColor3 = self.theme.Colors.textSecondary
-	frame.ScrollBarImageTransparency = 0.35
+	frame.ElasticBehavior = Enum.ElasticBehavior.Always
+	frame.ScrollBarThickness = 6
+	frame.ScrollBarImageColor3 = self.theme.Colors.accent
+	frame.ScrollBarImageTransparency = 0.2
 	frame.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+end
+
+function MenuSheet:_updateCanvas(frame, layout)
+	frame.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 24)
 end
 
 function MenuSheet:_buildTabs()
@@ -1702,22 +1601,25 @@ function MenuSheet:_buildTabs()
 		frame.Parent = self.contentHost
 
 		local layout = Instance.new("UIListLayout")
-		layout.Padding = UDim.new(0, 10)
+		layout.Padding = UDim.new(0, 8)
 		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		layout.VerticalAlignment = Enum.VerticalAlignment.Top
 		layout.Parent = frame
 
 		local padding = Instance.new("UIPadding")
-		padding.PaddingTop = UDim.new(0, 4)
-		padding.PaddingBottom = UDim.new(0, 12)
-		padding.PaddingLeft = UDim.new(0, 2)
-		padding.PaddingRight = UDim.new(0, 2)
+		padding.PaddingTop = UDim.new(0, 2)
+		padding.PaddingBottom = UDim.new(0, 16)
+		padding.PaddingLeft = UDim.new(0, 4)
+		padding.PaddingRight = UDim.new(0, 4)
 		padding.Parent = frame
 
 		builder(frame)
 		self.tabFrames[name] = frame
 
+		self:_updateCanvas(frame, layout)
 		layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-			frame.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 20)
+			self:_updateCanvas(frame, layout)
 		end)
 	end
 end
@@ -1740,13 +1642,14 @@ function MenuSheet:switchTab(tab)
 end
 
 function MenuSheet:show()
-	self.sheet.Visible = true
-	self.animation.sheetPresent(self.sheet)
+	self.panel.Visible = true
+	self.animation.topPanelPresent(self.panel, self.openY)
 	self.state.menuOpen = true
+	self:setStatus("Menu open • scroll down for more")
 end
 
 function MenuSheet:hide()
-	self.animation.sheetDismiss(self.sheet)
+	self.animation.topPanelDismiss(self.panel, self.openY)
 	self.state.menuOpen = false
 	if self.onClose then
 		self.onClose()
@@ -1763,7 +1666,6 @@ end
 
 function MenuSheet:updateStatus(text)
 	self.state.statusText = text
-	self.statusLabel.Text = text
 end
 
 function MenuSheet:setVisible(visible)
