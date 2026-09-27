@@ -106,8 +106,8 @@ return Platform
 	["src/Config.lua"] = [=[
 local Config = {}
 
-Config.VERSION = "1.6.0"
-Config.UI_BUILD = "MENU"
+Config.VERSION = "1.7.0"
+Config.UI_BUILD = "FULL"
 Config.LAYOUT_VERSION = 5
 
 Config.FLY = {
@@ -628,6 +628,7 @@ local State = {
 	flyForward = 0,
 	flyStrafe = 0,
 	autoDrive = true,
+	seatLock = false,
 	flyMode = "Off",
 	presenceGuard = false,
 	searchQuery = "",
@@ -1365,68 +1366,91 @@ function FlySpeedHud.new(deps)
 	return self
 end
 
+function FlySpeedHud:_makeBtn(parent, text, size, color)
+	local Theme = self.theme
+	local btn = Instance.new("TextButton")
+	btn.AutoButtonColor = false
+	btn.Text = text
+	btn.Font = Theme.Fonts.header
+	btn.TextSize = 14
+	btn.TextColor3 = Theme.Colors.textPrimary
+	btn.BackgroundColor3 = color or Theme.Colors.buttonGlass
+	btn.BackgroundTransparency = 0
+	btn.Size = size
+	btn.Parent = parent
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+	return btn
+end
+
 function FlySpeedHud:_create()
 	local Theme = self.theme
 	local root = Instance.new("Frame")
-	root.Name = "FlySpeedHud"
-	root.BackgroundColor3 = Theme.Colors.bgSecondary
-	root.BackgroundTransparency = 0.08
-	root.Size = UDim2.fromOffset(132, 34)
-	root.AnchorPoint = Vector2.new(1, 0.5)
-	root.Position = UDim2.new(0.88, 0, 0.42, 0)
+	root.Name = "FlyControlHud"
+	root.BackgroundColor3 = Theme.Colors.bgPrimary
+	root.BackgroundTransparency = 0
+	root.Size = UDim2.fromOffset(236, 148)
+	root.AnchorPoint = Vector2.new(0.5, 1)
+	root.Position = UDim2.new(0.5, 0, 1, -18)
 	root.Visible = false
-	root.ZIndex = 21
+	root.ZIndex = 50
 	root.Parent = self.screenGui
+	Instance.new("UICorner", root).CornerRadius = UDim.new(0, 14)
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 10)
-	corner.Parent = root
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 8)
+	pad.PaddingBottom = UDim.new(0, 8)
+	pad.PaddingLeft = UDim.new(0, 8)
+	pad.PaddingRight = UDim.new(0, 8)
+	pad.Parent = root
 
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Theme.Colors.textSecondary
-	stroke.Transparency = 0.65
-	stroke.Thickness = 1
-	stroke.Parent = root
+	local speedRow = Instance.new("Frame")
+	speedRow.BackgroundTransparency = 1
+	speedRow.Size = UDim2.new(1, 0, 0, 32)
+	speedRow.Position = UDim2.fromOffset(0, 0)
+	speedRow.Parent = root
 
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Horizontal
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	layout.VerticalAlignment = Enum.VerticalAlignment.Center
-	layout.Padding = UDim.new(0, 6)
-	layout.Parent = root
+	self.minusBtn = self:_makeBtn(speedRow, "-", UDim2.fromOffset(36, 32))
+	self.minusBtn.Position = UDim2.fromOffset(0, 0)
 
-	local function makeBtn(text, width)
-		local btn = Instance.new("TextButton")
-		btn.AutoButtonColor = false
-		btn.Text = text
-		btn.Font = Theme.Fonts.header
-		btn.TextSize = 16
-		btn.TextColor3 = Theme.Colors.textPrimary
-		btn.BackgroundColor3 = Theme.Colors.buttonGlass
-		btn.BackgroundTransparency = 0.2
-		btn.Size = UDim2.fromOffset(width, 26)
-		btn.Parent = root
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, 8)
-		c.Parent = btn
-		return btn
-	end
-
-	self.minusBtn = makeBtn("−", 28)
 	self.valueLabel = Instance.new("TextLabel")
-	self.valueLabel.BackgroundTransparency = 1
+	self.valueLabel.BackgroundColor3 = Theme.Colors.bgSecondary
+	self.valueLabel.BackgroundTransparency = 0
 	self.valueLabel.Font = Theme.Fonts.mono
-	self.valueLabel.TextSize = Theme.Sizes.mono
+	self.valueLabel.TextSize = 14
 	self.valueLabel.TextColor3 = Theme.Colors.textPrimary
-	self.valueLabel.Size = UDim2.fromOffset(40, 26)
-	self.valueLabel.Parent = root
-	self.plusBtn = makeBtn("+", 28)
+	self.valueLabel.Size = UDim2.new(1, -84, 1, 0)
+	self.valueLabel.Position = UDim2.fromOffset(42, 0)
+	self.valueLabel.Parent = speedRow
+	Instance.new("UICorner", self.valueLabel).CornerRadius = UDim.new(0, 8)
+
+	self.plusBtn = self:_makeBtn(speedRow, "+", UDim2.fromOffset(36, 32))
+	self.plusBtn.Position = UDim2.new(1, -36, 0, 0)
+
+	local dirRow = Instance.new("Frame")
+	dirRow.BackgroundTransparency = 1
+	dirRow.Size = UDim2.new(1, 0, 0, 36)
+	dirRow.Position = UDim2.fromOffset(0, 40)
+	dirRow.Parent = root
+
+	self.upBtn = self:_makeBtn(dirRow, "UP", UDim2.new(0.25, -4, 1, 0))
+	self.upBtn.Position = UDim2.new(0, 0, 0, 0)
+	self.downBtn = self:_makeBtn(dirRow, "DN", UDim2.new(0.25, -4, 1, 0))
+	self.downBtn.Position = UDim2.new(0.25, 2, 0, 0)
+	self.leftBtn = self:_makeBtn(dirRow, "<", UDim2.new(0.25, -4, 1, 0))
+	self.leftBtn.Position = UDim2.new(0.5, 2, 0, 0)
+	self.fwdBtn = self:_makeBtn(dirRow, "FWD", UDim2.new(0.25, -2, 1, 0), Theme.Colors.accent)
+	self.fwdBtn.Position = UDim2.new(0.75, 2, 0, 0)
+
+	self.autoBtn = self:_makeBtn(root, "Auto drive", UDim2.new(0.48, -4, 0, 34), Theme.Colors.success)
+	self.autoBtn.Position = UDim2.new(0, 0, 1, -34)
+
+	self.lockBtn = self:_makeBtn(root, "Lock seat", UDim2.new(0.48, -4, 0, 34))
+	self.lockBtn.Position = UDim2.new(0.52, 4, 1, -34)
 
 	local function bump(delta)
 		local fly = self.config and self.config.FLY or { MIN_SPEED = 16, MAX_SPEED = 600 }
 		local nextSpeed = self.utils.clamp(self.state.flySpeed + delta, fly.MIN_SPEED, fly.MAX_SPEED)
 		self.flyService:setSpeed(nextSpeed)
-		self.state.flySpeed = nextSpeed
 		self:sync()
 		self.setStatus(string.format("Speed: %d", nextSpeed))
 	end
@@ -1438,26 +1462,61 @@ function FlySpeedHud:_create()
 		bump(10)
 	end)
 
+	self.utils.holdRepeat(self.upBtn, function()
+		self.flyService:setVertical(1)
+	end, 0.15, 0.05, function()
+		self.flyService:setVertical(0)
+	end)
+	self.utils.holdRepeat(self.downBtn, function()
+		self.flyService:setVertical(-1)
+	end, 0.15, 0.05, function()
+		self.flyService:setVertical(0)
+	end)
+	self.utils.holdRepeat(self.leftBtn, function()
+		self.flyService:setStrafe(-1)
+	end, 0.15, 0.05, function()
+		self.flyService:setStrafe(0)
+	end)
+	self.utils.holdRepeat(self.fwdBtn, function()
+		self.flyService:setForward(-1)
+	end, 0.15, 0.05, function()
+		self.flyService:setForward(0)
+	end)
+
+	self.autoBtn.MouseButton1Click:Connect(function()
+		self.flyService:setAutoDrive(true)
+		self:sync()
+		self.setStatus("Auto drive on")
+	end)
+
+	self.lockBtn.MouseButton1Click:Connect(function()
+		self.flyService:setSeatLock(not self.state.seatLock)
+		self:sync()
+		self.setStatus(self.state.seatLock and "Seat lock on" or "Seat lock off")
+	end)
+
 	return root
 end
 
 function FlySpeedHud:sync()
-	self.valueLabel.Text = tostring(math.floor(self.state.flySpeed + 0.5))
+	self.valueLabel.Text = "SPD " .. tostring(math.floor(self.state.flySpeed + 0.5))
 	self.root.Visible = self.state.flyEnabled
+	self.autoBtn.Visible = not self.state.autoDrive
+	if self.state.autoDrive then
+		self.lockBtn.Size = UDim2.new(1, 0, 0, 34)
+		self.lockBtn.Position = UDim2.new(0, 0, 1, -34)
+	else
+		self.lockBtn.Size = UDim2.new(0.48, -4, 0, 34)
+		self.lockBtn.Position = UDim2.new(0.52, 4, 1, -34)
+	end
+	self.lockBtn.BackgroundColor3 = self.state.seatLock and self.theme.Colors.success or self.theme.Colors.buttonGlass
+	self.lockBtn.Text = self.state.seatLock and "Locked" or "Lock seat"
 end
 
-function FlySpeedHud:followButton(button)
-	if not button then
-		return
-	end
+function FlySpeedHud:followButton(_button)
 	self.root.AnchorPoint = Vector2.new(0.5, 1)
-	self.root.ZIndex = 999998
-	self.root.Position = UDim2.new(
-		button.Position.X.Scale,
-		button.Position.X.Offset,
-		button.Position.Y.Scale,
-		button.Position.Y.Offset - (button.AbsoluteSize.Y * 0.5) - 8
-	)
+	self.root.Position = UDim2.new(0.5, 0, 1, -18)
+	self.root.ZIndex = 50
 end
 
 function FlySpeedHud:setVisible(visible)
@@ -1510,9 +1569,8 @@ function MenuSheet:_create()
 	panel.ZIndex = 10
 	panel.Parent = self.screenGui
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 16)
-	corner.Parent = panel
+	panel.Size = UDim2.fromScale(1, 1)
+	panel.Position = UDim2.fromOffset(0, 0)
 
 	local header = Instance.new("Frame")
 	header.Name = "Header"
@@ -1598,21 +1656,8 @@ function MenuSheet:_create()
 end
 
 function MenuSheet:_layout()
-	local gui = self.screenGui
-	local size = gui.AbsoluteSize
-	if size.X < 80 or size.Y < 80 then
-		local cam = workspace.CurrentCamera
-		size = (cam and cam.ViewportSize) or Vector2.new(390, 844)
-	end
-
-	local pad = 8
-	local top = 64
-	local width = math.max(size.X - pad * 2, 200)
-	local height = math.max(math.floor(size.Y * 0.48), 260)
-	height = math.min(height, math.floor(size.Y * 0.62))
-
-	self.panel.Position = UDim2.fromOffset(pad, top)
-	self.panel.Size = UDim2.fromOffset(width, height)
+	self.panel.Position = UDim2.fromOffset(0, 0)
+	self.panel.Size = UDim2.fromScale(1, 1)
 end
 
 function MenuSheet:_bindResize()
@@ -1963,8 +2008,15 @@ function FlyService.new(state, utils, gameContext, config, platform)
 	self.config = config
 	self.platform = platform
 	self.connection = nil
+	self.lockConn = nil
+	self.jumpConn = nil
+	self.lastSeat = nil
+	self.savedJumpPower = nil
+	self.savedJumpHeight = nil
 	self.defaultCharacterParent = nil
 	self.state.autoDrive = config.MOBILE.AUTO_DRIVE_DEFAULT and platform.isMobile()
+	self:_bindJumpBlock()
+	self:_startLockLoop()
 	return self
 end
 
@@ -2002,6 +2054,13 @@ function FlyService:setAutoDrive(enabled)
 	self.state.autoDrive = enabled
 end
 
+function FlyService:setSeatLock(enabled)
+	self.state.seatLock = enabled
+	if not enabled then
+		self:_restoreJump()
+	end
+end
+
 function FlyService:getMode()
 	local vehicle = self.gameContext:getActiveVehicle()
 	return vehicle and "Vehicle" or "Character"
@@ -2022,6 +2081,32 @@ function FlyService:_buildVehicleOffset()
 	end
 
 	return CFrame.new(strafe, vertical, forward)
+end
+
+function FlyService:_worldMoveVector(lookVector, offset)
+	local basis = CFrame.new(Vector3.zero, lookVector)
+	return basis:VectorToWorldSpace(offset.Position)
+end
+
+function FlyService:_applyImpactVelocity(vehicle, worldMove)
+	local speed = self.state.flySpeed
+	local vel = Vector3.zero
+	if worldMove.Magnitude > 0.05 then
+		vel = worldMove.Unit * speed
+	elseif self.state.autoDrive then
+		local camera = workspace.CurrentCamera
+		vel = camera.CFrame.LookVector * speed
+	end
+
+	for _, part in ipairs(vehicle:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.AssemblyLinearVelocity = vel
+			part.AssemblyAngularVelocity = Vector3.zero
+			pcall(function()
+				part.Velocity = vel
+			end)
+		end
+	end
 end
 
 function FlyService:_flyVehicle(vehicle, seat, character)
@@ -2049,15 +2134,7 @@ function FlyService:_flyVehicle(vehicle, seat, character)
 
 	local nextCFrame = CFrame.new(current.Position, current.Position + lookVector) * offset
 	self.gameContext:setVehicleCFrame(vehicle, nextCFrame)
-
-	seat.AssemblyLinearVelocity = Vector3.zero
-	seat.AssemblyAngularVelocity = Vector3.zero
-	for _, part in ipairs(vehicle:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.AssemblyLinearVelocity = Vector3.zero
-			part.AssemblyAngularVelocity = Vector3.zero
-		end
-	end
+	self:_applyImpactVelocity(vehicle, self:_worldMoveVector(lookVector, offset))
 
 	self.state.flyMode = "Vehicle"
 end
@@ -2087,13 +2164,105 @@ function FlyService:_flyCharacter(root, humanoid)
 	move += Vector3.new(0, (self.state.flyVertical or 0) * units, 0)
 	move += ref.RightVector * ((self.state.flyStrafe or 0) * units)
 
-	root.AssemblyLinearVelocity = move
+	if move.Magnitude > 0.01 then
+		root.AssemblyLinearVelocity = move.Unit * self.state.flySpeed
+	else
+		root.AssemblyLinearVelocity = Vector3.zero
+	end
 	root.AssemblyAngularVelocity = Vector3.zero
 	self.state.flyMode = "Character"
 end
 
+function FlyService:_humanoid()
+	local player = game:GetService("Players").LocalPlayer
+	local character = player and player.Character
+	return character and character:FindFirstChildOfClass("Humanoid"), character
+end
+
+function FlyService:_keepSeated()
+	if not self.state.seatLock then
+		return
+	end
+
+	local humanoid, character = self:_humanoid()
+	if not humanoid or not character then
+		return
+	end
+
+	humanoid.Jump = false
+	humanoid.Sit = true
+	pcall(function()
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+		humanoid.JumpPower = 0
+		humanoid.JumpHeight = 0
+	end)
+
+	local vehicle, seat = self.gameContext:getActiveVehicle()
+	if seat then
+		self.lastSeat = seat
+	elseif self.lastSeat and self.lastSeat.Parent then
+		seat = self.lastSeat
+		pcall(function()
+			seat:Sit(humanoid)
+		end)
+	end
+
+	if seat and character then
+		local parent = self.gameContext:getVehicleFromSeat(seat)
+		if parent then
+			character.Parent = parent
+		end
+	end
+end
+
+function FlyService:_bindJumpBlock()
+	if self.jumpConn then
+		return
+	end
+	self.jumpConn = game:GetService("UserInputService").JumpRequest:Connect(function()
+		if not self.state.seatLock then
+			return
+		end
+		local humanoid = self:_humanoid()
+		if humanoid then
+			humanoid.Jump = false
+		end
+	end)
+end
+
+function FlyService:_restoreJump()
+	local humanoid = self:_humanoid()
+	if not humanoid then
+		return
+	end
+	pcall(function()
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+		if self.savedJumpPower then
+			humanoid.JumpPower = self.savedJumpPower
+		end
+		if self.savedJumpHeight then
+			humanoid.JumpHeight = self.savedJumpHeight
+		end
+	end)
+end
+
+function FlyService:_startLockLoop()
+	if self.lockConn then
+		return
+	end
+	self.lockConn = game:GetService("RunService").Heartbeat:Connect(function()
+		self:_keepSeated()
+	end)
+end
+
 function FlyService:_start()
-	self:_stop()
+	self:_stop(true)
+
+	local humanoid = self:_humanoid()
+	if humanoid and self.savedJumpPower == nil then
+		self.savedJumpPower = humanoid.JumpPower
+		self.savedJumpHeight = humanoid.JumpHeight
+	end
 
 	self.connection = game:GetService("RunService").Stepped:Connect(function()
 		if not self.state.flyEnabled then
@@ -2116,7 +2285,7 @@ function FlyService:_start()
 			end
 			self:_flyVehicle(vehicle, seat, character)
 		else
-			if self.defaultCharacterParent then
+			if self.defaultCharacterParent and not self.state.seatLock then
 				character.Parent = self.defaultCharacterParent
 			end
 			self:_flyCharacter(root, humanoid)
@@ -2124,7 +2293,7 @@ function FlyService:_start()
 	end)
 end
 
-function FlyService:_stop()
+function FlyService:_stop(keepLockLoop)
 	if self.connection then
 		self.connection:Disconnect()
 		self.connection = nil
@@ -2135,7 +2304,7 @@ function FlyService:_stop()
 	local root = character and self.utils.getLocalRoot()
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 
-	if root then
+	if root and not self.state.flyEnabled then
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 	end
@@ -2144,8 +2313,12 @@ function FlyService:_stop()
 		humanoid.PlatformStand = false
 	end
 
-	if character and self.defaultCharacterParent then
+	if character and self.defaultCharacterParent and not self.state.seatLock then
 		character.Parent = self.defaultCharacterParent
+	end
+
+	if not keepLockLoop then
+		self:_restoreJump()
 	end
 
 	self.state.flyMode = "Off"
@@ -2373,6 +2546,7 @@ local function buildFlyModule(deps)
 	local FlyService = deps.flyService
 	local setStatus = deps.setStatus
 	local onSpeedHudSync = deps.onSpeedHudSync
+	local onFlyChange = deps.onFlyChange
 	local Config = deps.config
 
 	return function(parent)
@@ -2385,6 +2559,9 @@ local function buildFlyModule(deps)
 				FlyService:setEnabled(value)
 				if onSpeedHudSync then
 					onSpeedHudSync()
+				end
+				if onFlyChange then
+					onFlyChange(value)
 				end
 				if value then
 					setStatus(string.format("Fly %s • %d", FlyService:getMode(), State.flySpeed))
@@ -2401,6 +2578,23 @@ local function buildFlyModule(deps)
 			default = State.autoDrive,
 			onChange = function(value)
 				FlyService:setAutoDrive(value)
+				if onSpeedHudSync then
+					onSpeedHudSync()
+				end
+			end,
+		})
+
+		Components.createSwitch({
+			parent = parent,
+			theme = Theme,
+			label = "Lock seat",
+			default = State.seatLock,
+			onChange = function(value)
+				FlyService:setSeatLock(value)
+				if onSpeedHudSync then
+					onSpeedHudSync()
+				end
+				setStatus(value and "Seat lock on" or "Seat lock off")
 			end,
 		})
 
@@ -2896,6 +3090,17 @@ local function bootstrap(loadModule)
 			onSpeedHudSync = function()
 				if overlay.speedHud then
 					overlay.speedHud:sync()
+				end
+			end,
+			onFlyChange = function(enabled)
+				if overlay.speedHud then
+					overlay.speedHud:sync()
+				end
+				if enabled and overlay.menu then
+					overlay.menu:hide()
+					if overlay.button then
+						overlay.button:setActive(false)
+					end
 				end
 			end,
 		}),
